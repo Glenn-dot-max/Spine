@@ -16,3 +16,6 @@ venv/
 
 # Logs
 *.log
+
+# Local env
+backend/.env
