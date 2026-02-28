@@ -1,13 +1,15 @@
 import os
-
 from sqlalchemy import create_engine, text
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
+database_url = os.environ.get("DATABASE_URL")
+if not database_url:
     raise RuntimeError("DATABASE_URL environment variable is not set")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(database_url, echo=True)
 
 def db_ping():
-    with engine.connect() as connection:
-        connection.execute(text("select 1"))
+    """Teste la connexion à la base de données"""
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT 1"))
+        result.fetchone()
+    return {"db": "ok"}

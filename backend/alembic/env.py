@@ -17,7 +17,8 @@ if not database_url:
     raise RuntimeError("DATABASE_URL is not set for Alembic")
 config.set_main_option("sqlalchemy.url", database_url)
 
-target_metadata = None
+from app.models import Base
+target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
