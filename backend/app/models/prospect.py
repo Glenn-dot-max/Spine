@@ -1,6 +1,7 @@
 """
 Prospect model - represents leads from various sources.
 """
+
 from sqlalchemy import Column, Integer, String, Text, Enum as SqlEnum
 from sqlalchemy.orm import relationship
 from enum import Enum

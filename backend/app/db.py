@@ -1,15 +1,41 @@
+"""
+Database connection and session management
+"""
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from typing import Generator
 import os
-from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 
-database_url = os.environ.get("DATABASE_URL")
-if not database_url:
-    raise RuntimeError("DATABASE_URL environment variable is not set")
+load_dotenv()
 
-engine = create_engine(database_url, echo=True)
+# Get database URL from environment
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-def db_ping():
-    """Teste la connexion à la base de données"""
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT 1"))
-        result.fetchone()
-    return {"db": "ok"}
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set")
+
+# Create SQLAlchemy engine
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,  # Check connection before using
+    echo=False,  # Set to True for SQL query logging
+)
+
+# Create a configured "Session" class
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_db() -> Generator[Session, None, None]:
+    """
+    Dependency that provides a database session.
+    
+    Usage in FastAPI:
+        @app.get("/items/")
+        def read_items(db: Session = Depends(get_db)):
+            return db.query(Item).all()
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
