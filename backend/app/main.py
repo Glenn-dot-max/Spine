@@ -25,7 +25,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(auth_router)      # ← NOUVEAU (en premier)
+app.include_router(auth_router)      
 app.include_router(products_router)
 app.include_router(prospects_router)
 

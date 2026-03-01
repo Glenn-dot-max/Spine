@@ -10,6 +10,7 @@ from app.db import get_db
 from app.models.user import User
 from app.schemas.auth import UserCreate, UserLogin, User as UserSchema, Token
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.core.config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
 from app.core.deps import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])

@@ -1,13 +1,10 @@
 """
-Pydantic schemas for API validation.
+Pydantic schemas for Spine CRM.
 """
 from .product import Product, ProductCreate, ProductUpdate
-from .prospect import (
-    Prospect,
-    ProspectCreate,
-    ProspectUpdate,
-    ProspectProductLink
-)
+from .prospect import Prospect, ProspectCreate, ProspectUpdate
+from .prospect_product import ProspectProductLink
+from .auth import User, UserCreate, UserLogin, Token, TokenPayload
 
 __all__ = [
     "Product",
@@ -16,5 +13,10 @@ __all__ = [
     "Prospect",
     "ProspectCreate",
     "ProspectUpdate",
-    "ProspectProductLink"
+    "ProspectProductLink",
+    "User",
+    "UserCreate",
+    "UserLogin",
+    "Token",
+    "TokenPayload",
 ]
