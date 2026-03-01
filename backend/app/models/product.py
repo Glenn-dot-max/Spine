@@ -1,41 +1,39 @@
 """
 Product model - represents items from user's product catalog.
 """
-from sqlalchemy import Column, Integer, String, Text
-from sqlalchemy.orm import relationship
-from .base import Base, TimestampMixin
+from sqlalchemy import String, Text, ForeignKey, Index
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import Optional
+
+from app.models.base import Base, TimestampMixin
 
 class Product(Base, TimestampMixin):
-    """
-    Product catalog entry.
+    """Product in catalog."""
 
-    Products are imported via CSV (initially) or PDF parsing (later).
-    Used to personalize email templates with product information.
-
-    Attributes:
-        item_number: Unique product identifier (SKU).
-        name: Product name.
-        short_description: Brief product description.
-    """
     __tablename__ = "products"
 
-    id = Column(Integer, primary_key=True, index=True)
-    item_number = Column(
-        String(100),
-        unique=True,
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Owner
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
-        comment="Product SKU item code"
+        index=True
     )
-    name = Column(String(255), nullable=False, comment="Product name")
-    short_description = Column(Text, nullable=True, comment="Brief product description")
+
+    item_number: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    short_description: Mapped[Optional[str]] = mapped_column(Text)
 
     # Relationships
-    prospect_interests = relationship(
-        "ProspectProduct",
-        back_populates="product",
-        cascade="all, delete-orphan"
+    user: Mapped["User"] = relationship(back_populates="products")
+
+    # Unique constraint par user 
+    __tabs_args__ = (
+        Index('ix_products_user_item', 'user_id', 'item_number', unique=True),
     )
 
     def __repr__(self) -> str:
-        return f"<Product(id={self.id}, item_number='{self.item_number}', name='{self.name}')>"
+        return f"<Product {self.item_number} - {self.name}>"
+    
+    
