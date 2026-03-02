@@ -4,39 +4,60 @@ User model for authentication
 
 from sqlalchemy import String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
-from app.models.base import Base, TimestampMixin
+from app.db import Base
 
 if TYPE_CHECKING:
     from app.models.product import Product
     from app.models.prospect import Prospect
 
-class User(Base, TimestampMixin):
-    """User account for authentication."""
-
+class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Base fields
 
-    first_name: Mapped[Optional[str]] = mapped_column(String(100))
-    last_name: Mapped[Optional[str]] = mapped_column(String(100))
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True)
+    hashed_password: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Gmail Oauth fields
+    gmail_connected: Mapped[bool] = mapped_column(Boolean, default=False)
+    gmail_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    gmail_access_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    gmail_refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Outlook Oauth fields
+    outlook_connected: Mapped[bool] = mapped_column(Boolean, default=False)
+    outlook_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    outlook_access_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    outlook_refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Default provider
+    default_email_provider: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Relationships
-    prospects: Mapped[List["Prospect"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan"
-    )
+    products: Mapped[list["Product"]] = relationship("Product", back_populates="user", cascade="all, delete-orphan")
+    prospects: Mapped[list["Prospect"]] = relationship("Prospect", back_populates="user", cascade="all, delete-orphan")
 
-    products: Mapped[List["Product"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan"
-    )
-
-    def __repr__(self) -> str:
-        return f"<User {self.email}>"
+    @property
+    def has_email_configured(self) -> bool:
+        """Check if the user has at least one email provider configured."""
+        return self.gmail_connected or self.outlook_connected
+    
+    @property
+    def primary_email_address(self) -> Optional[str]:
+        """Return the primary email address based on the default provider."""
+        if self.default_email_provider == "gmail" and self.gmail_connected:
+            return self.gmail_email
+        elif self.default_email_provider == "outlook" and self.outlook_connected:
+            return self.outlook_email
+        elif self.gmail_connected:
+            return self.gmail_email
+        elif self.outlook_connected:
+            return self.outlook_email
+        return None

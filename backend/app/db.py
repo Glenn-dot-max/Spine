@@ -2,7 +2,7 @@
 Database connection and session management
 """
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase
 from typing import Generator
 import os
 from dotenv import load_dotenv
@@ -24,6 +24,13 @@ engine = create_engine(
 
 # Create a configured "Session" class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+# ⭐ AJOUT : Base class for all models
+class Base(DeclarativeBase):
+    """Base class for all database models."""
+    pass
+
 
 def get_db() -> Generator[Session, None, None]:
     """
