@@ -6,13 +6,13 @@ from sqlalchemy import String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Optional, TYPE_CHECKING
 
-from app.models.base import Base
+from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.product import Product
     from app.models.prospect import Prospect
 
-class User(Base):
+class User(Base, TimestampMixin):
     __tablename__ = "users"
 
     # Base fields

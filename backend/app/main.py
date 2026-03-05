@@ -31,10 +31,9 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(auth_router, prefix="/api")
-app.include_router(prospects_router, prefix="/api")
-app.include_router(oauth_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(prospects_router, prefix="/api/prospects", tags=["prospects"])
+app.include_router(oauth_router, prefix="/api/oauth", tags=["oauth"])
 
 
 @app.get("/")

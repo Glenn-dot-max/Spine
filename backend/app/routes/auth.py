@@ -33,7 +33,7 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
   new_user = User(
     email=user_data.email,
     hashed_password=hashed_password,
-    fisrt_name=user_data.first_name,
+    first_name=user_data.first_name,
     last_name=user_data.last_name,
     is_active=True,
   )
