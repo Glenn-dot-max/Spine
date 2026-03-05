@@ -8,7 +8,6 @@ import secrets
 
 from app.db import get_db
 from app.models.user import User
-from app.api.deps import get_current_user
 from app.services.oauth import (
     get_gmail_auth_url,
     exchange_gmail_code,
@@ -24,9 +23,25 @@ router = APIRouter(prefix="/oauth", tags=["oauth"])
 oauth_states = {}
 
 
+# ✅ FONCTION TEMPORAIRE POUR TESTER SANS AUTH
+def get_test_user(db: Session = Depends(get_db)):
+    """Get or create a test user for development (TEMPORARY)."""
+    user = db.query(User).first()
+    if not user:
+        user = User(
+            email="test@example.com",
+            username="testuser",
+            hashed_password="dummy"
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
 @router.get("/gmail/connect")
 async def connect_gmail(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_test_user),  # ✅ Modifié
 ):
     """
     Initiate Gmail OAuth flow.
@@ -88,16 +103,16 @@ async def gmail_callback(
         db.commit()
         
         # Redirect to frontend success page
-        return RedirectResponse(url="http://localhost:3000/settings?oauth=gmail&status=success")
+        return RedirectResponse(url="http://localhost:5173/settings?oauth=gmail&status=success")
         
     except Exception as e:
         # Redirect to frontend error page
-        return RedirectResponse(url=f"http://localhost:3000/settings?oauth=gmail&status=error&message={str(e)}")
+        return RedirectResponse(url=f"http://localhost:5173/settings?oauth=gmail&status=error&message={str(e)}")
 
 
 @router.get("/outlook/connect")
 async def connect_outlook(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_test_user),  # ✅ Modifié
 ):
     """
     Initiate Outlook OAuth flow.
@@ -159,17 +174,17 @@ async def outlook_callback(
         db.commit()
         
         # Redirect to frontend success page
-        return RedirectResponse(url="http://localhost:3000/settings?oauth=outlook&status=success")
+        return RedirectResponse(url="http://localhost:5173/settings?oauth=outlook&status=success")
         
     except Exception as e:
         # Redirect to frontend error page
-        return RedirectResponse(url=f"http://localhost:3000/settings?oauth=outlook&status=error&message={str(e)}")
+        return RedirectResponse(url=f"http://localhost:5173/settings?oauth=outlook&status=error&message={str(e)}")
 
 
 @router.post("/disconnect/{provider}")
 async def disconnect_provider(
     provider: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_test_user),  # ✅ Modifié
     db: Session = Depends(get_db),
 ):
     """
@@ -208,7 +223,7 @@ async def disconnect_provider(
 
 @router.get("/status")
 async def oauth_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_test_user),  # ✅ Modifié
 ):
     """
     Get OAuth connection status for current user.

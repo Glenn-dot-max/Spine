@@ -3,7 +3,14 @@ Spine CRM - FastAPI Application
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, prospects, oauth, emails
+
+# Import from routes (existing files)
+from app.routes.auth import router as auth_router
+from app.routes.prospects import router as prospects_router
+from app.routes import auth
+
+# Import from api (new OAuth)
+from app.api.oauth import router as oauth_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -17,17 +24,17 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Frontend specific
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include routers
-app.include_router(auth.router, prefix="/api")
-app.include_router(prospects.router, prefix="/api")
-app.include_router(oauth.router, prefix="/api")
-app.include_router(emails.router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
+app.include_router(prospects_router, prefix="/api")
+app.include_router(oauth_router, prefix="/api")
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 
 @app.get("/")

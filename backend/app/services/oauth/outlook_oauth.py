@@ -69,9 +69,15 @@ def get_outlook_user_info(access_token: str) -> dict:
     )
     response.raise_for_status()
     user_info = response.json()
+
+    email = user_info.get("mail") or user_info.get("userPrincipalName")
+
+    if "#EXT#" in email:
+        email = email.split("#EXT#")[0].replace("_", "@")
     
     return {
-        "email": user_info.get("mail") or user_info.get("userPrincipalName"),
+        "email": email,
+        "name": user_info.get("displayName"),
     }
 
 

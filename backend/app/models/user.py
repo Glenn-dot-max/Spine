@@ -6,7 +6,7 @@ from sqlalchemy import String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Optional, TYPE_CHECKING
 
-from app.db import Base
+from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.product import Product
