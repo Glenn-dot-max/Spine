@@ -8,7 +8,7 @@ from typing import List
 from app.db import get_db
 from app.models import Prospect as ProspectModel
 from app.schemas import Prospect, ProspectCreate, ProspectUpdate
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.user import User
 
 router = APIRouter(prefix="/api/prospects", tags=["prospects"])
