@@ -19,14 +19,22 @@ def create_prospect(
   current_user: User = Depends(get_current_user),
   db: Session = Depends(get_db)
 ):
-  """Create a neww prospect (protected)."""
+  """Create a new prospect (protected)."""
+  # Extract product interest IDs and remove from prospect data
+  prospect_data = prospect.model_dump(exclude={'product_interest_ids'})
+  product_interest_ids = prospect.product_interest_ids or []
+
+  # Create the prospect
   db_prospect = ProspectModel(
-    **prospect.model_dump(),
+    **prospect_data,  # ✅ UTILISE prospect_data au lieu de prospect.model_dump()
     user_id=current_user.id
   )
   db.add(db_prospect)
   db.commit()
   db.refresh(db_prospect)
+  
+  # TODO: Handle product_interests linking if needed
+  
   return db_prospect
 
 @router.get("/", response_model=List[Prospect])
