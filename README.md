@@ -1,221 +1,446 @@
-cd ~/Desktop/Dev/Spine/V1.1
+# Spine CRM API
 
-cat > README.md << 'EOF'
+Email automation CRM for prospect management.
 
-# 📋 Spine CRM v1.1 - Guide de démarrage complet
+## 🚀 Quick Start
 
-## 🎯 Vue d'ensemble
+### Prerequisites
 
-**Spine CRM** est une application de gestion de la relation client (CRM) avec automatisation d'emails.
+- Python 3.9+
+- PostgreSQL
+- pip
 
-**Stack technique :**
+### Installation
 
-- **Backend** : FastAPI (Python 3.9+)
-- **Frontend** : React + TypeScript + Vite
-- **Base de données** : PostgreSQL 15
-- **OAuth** : Gmail & Outlook/Microsoft
-
----
-
-## 📦 Prérequis
-
-- **Python 3.9+** : https://www.python.org/downloads/
-- **Node.js 18+** : https://nodejs.org/
-- **Docker Desktop** : https://www.docker.com/products/docker-desktop/
-- **Git** : https://git-scm.com/downloads/
-
----
-
-## 🚀 Installation complète
-
-### ÉTAPE 1 : Lancer PostgreSQL
-
-\`\`\`bash
-docker run --name postgres -e POSTGRES_USER=spine -e POSTGRES_PASSWORD=spinepassword -e POSTGRES_DB=spine -p 5432:5432 -d postgres:15
-docker ps
-\`\`\`
-
-### ÉTAPE 2 : Backend
-
-\`\`\`bash
+```bash
+# Clone the repository
+git clone <your-repo-url>
 cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install "uvicorn[standard]"
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
-\`\`\`
 
-Créer \`backend/.env\` :
-\`\`\`
-DATABASE_URL=postgresql://spine:spinepassword@localhost:5432/spine
-SECRET_KEY=changez-moi
-GOOGLE_CLIENT_ID=votre-client-id
-GOOGLE_CLIENT_SECRET=votre-secret
-GOOGLE_REDIRECT_URI=http://localhost:8000/api/oauth/gmail/callback
-MICROSOFT_CLIENT_ID=votre-client-id
-MICROSOFT_CLIENT_SECRET=votre-secret
-MICROSOFT_REDIRECT_URI=http://localhost:8000/api/oauth/outlook/callback
-MICROSOFT_TENANT_ID=common
-\`\`\`
+# Setup environment variables
+cp .env.example .env
+# Edit .env with your database credentials
 
-Initialiser la DB :
-\`\`\`bash
-python -c "from app.db import Base, engine; Base.metadata.create_all(bind=engine)"
-\`\`\`
+# Run migrations
+alembic upgrade head
 
-### ÉTAPE 3 : Frontend
-
-\`\`\`bash
-cd ../frontend
-npm install
-\`\`\`
-
----
-
-## ▶️ Démarrage quotidien
-
-### 1. PostgreSQL
-
-\`\`\`bash
-docker start postgres
-\`\`\`
-
-### 2. Backend
-
-\`\`\`bash
-cd backend
-source venv/bin/activate
+# Start the server
 python -m uvicorn app.main:app --reload
-\`\`\`
-✅ http://localhost:8000
+```
 
-### 3. Frontend
+Server runs at: `http://localhost:8000`
 
-\`\`\`bash
-cd frontend
-npm run dev
-\`\`\`
-✅ http://localhost:5173
+API Documentation: `http://localhost:8000/docs`
 
 ---
 
-## 🗄️ PostgreSQL
+## 📋 Features
 
-\`\`\`bash
-docker exec -it postgres psql -U spine -d spine
-\`\`\`
+### ✅ Implemented
 
-\`\`\`sql
-\\dt
-SELECT \* FROM users;
-\\q
-\`\`\`
+- **User Authentication** (JWT-based)
+  - Register, login, refresh tokens
+  - Protected routes with user isolation
 
----
+- **Products Management**
+  - CRUD operations for products
+  - User-scoped product ownership
 
-## 🔧 Configuration OAuth
+- **Prospects Management**
+  - CRUD operations for prospects
+  - Create prospects with product interests in one step
+  - User-scoped prospect ownership
 
-### Gmail
+- **Prospect-Product Relationships** 🆕
+  - Link products to prospects with notes
+  - Update relationship notes
+  - Remove product interests
+  - Automatic creation via `product_interest_ids`
 
-1. https://console.cloud.google.com/
-2. Créer projet "Spine CRM"
-3. Activer Gmail API
-4. OAuth Consent Screen → External
-5. Scopes : openid, userinfo.email, gmail.readonly, gmail.send
-6. Test users : votre email
-7. Credentials → OAuth 2.0 → Redirect URI : http://localhost:8000/api/oauth/gmail/callback
-
-### Outlook
-
-1. https://portal.azure.com/
-2. App registrations → New
-3. Redirect URI : http://localhost:8000/api/oauth/outlook/callback
-4. Client Secret → Copier la VALUE
-5. API Permissions : Mail.Read, Mail.ReadWrite, Mail.Send, User.Read, offline_access
-6. Grant admin consent
+- **Security**
+  - IDOR protection (users can only access their own data)
+  - JWT authentication on all protected routes
+  - Input validation
 
 ---
 
-## 🐛 Dépannage
+## 🔑 Authentication
 
-### Port 5432 occupé
+### Register
 
-\`\`\`bash
-lsof -i :5432
-brew services stop postgresql
-\`\`\`
+```http
+POST /api/auth/register
+Content-Type: application/json
 
-### Module psycopg manquant
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!",
+  "first_name": "John",
+  "last_name": "Doe"
+}
+```
 
-\`\`\`bash
-source venv/bin/activate
-python -m uvicorn app.main:app --reload
-\`\`\`
+### Login
 
-### OAuth redirect_uri_mismatch
+```http
+POST /api/auth/login
+Content-Type: application/x-www-form-urlencoded
 
-Vérifier les redirect URIs :
+username=user@example.com&password=SecurePass123!
+```
 
-- Gmail : http://localhost:8000/api/oauth/gmail/callback
-- Outlook : http://localhost:8000/api/oauth/outlook/callback
+**Response:**
 
----
+```json
+{
+  "access_token": "eyJhbGc...",
+  "refresh_token": "eyJhbGc...",
+  "token_type": "bearer"
+}
+```
 
-## 📁 Structure
+### Using the token
 
-\`\`\`
-Spine/V1.1/
-├── backend/
-│ ├── app/
-│ │ ├── main.py
-│ │ ├── db.py
-│ │ ├── models/
-│ │ ├── api/
-│ │ ├── routes/
-│ │ └── services/
-│ ├── .env
-│ └── venv/
-├── frontend/
-│ ├── src/
-│ └── node_modules/
-└── README.md
-\`\`\`
+Include in all protected requests:
+
+```http
+Authorization: Bearer <access_token>
+```
 
 ---
 
-## 📊 État actuel
+## 📦 Products API
 
-✅ Backend FastAPI  
-✅ Frontend React  
-✅ PostgreSQL  
-✅ OAuth Gmail  
-✅ OAuth Outlook
+### Create Product
 
-🚧 À faire :
+```http
+POST /api/products/
+Authorization: Bearer <token>
+Content-Type: application/json
 
-- Auth JWT
-- Envoi emails
-- CRUD prospects
-- Automatisation
+{
+  "item_number": "WIDGET-001",
+  "name": "Super Widget",
+  "short_description": "Amazing product"
+}
+```
+
+### List Products
+
+```http
+GET /api/products/
+Authorization: Bearer <token>
+```
+
+### Get Product
+
+```http
+GET /api/products/{id}
+Authorization: Bearer <token>
+```
+
+### Update Product
+
+```http
+PATCH /api/products/{id}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "short_description": "Updated description"
+}
+```
+
+### Delete Product
+
+```http
+DELETE /api/products/{id}
+Authorization: Bearer <token>
+```
 
 ---
 
-## 👨‍💻 Développeur
+## 👥 Prospects API
 
-Glenn Duval  
-📧 glenn_duval@outlook.com
+### Create Prospect (Simple)
+
+```http
+POST /api/prospects/
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "first_name": "Jane",
+  "last_name": "Smith",
+  "email": "jane@example.com",
+  "phone_number": "+1234567890",
+  "company_name": "Acme Corp",
+  "position": "CEO",
+  "source": "trade_show",
+  "source_notes": "Met at conference"
+}
+```
+
+### Create Prospect with Product Interests 🆕
+
+```http
+POST /api/prospects/
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "first_name": "Jane",
+  "last_name": "Smith",
+  "email": "jane@example.com",
+  "company_name": "Acme Corp",
+  "position": "CEO",
+  "source": "referral",
+  "product_interest_ids": [1, 2, 3]
+}
+```
+
+**This will:**
+
+1. Create the prospect
+2. Automatically create links to products 1, 2, and 3
+
+### List Prospects
+
+```http
+GET /api/prospects/
+Authorization: Bearer <token>
+```
+
+### Get Prospect
+
+```http
+GET /api/prospects/{id}
+Authorization: Bearer <token>
+```
+
+### Update Prospect
+
+```http
+PUT /api/prospects/{id}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "first_name": "Jane",
+  "last_name": "Smith",
+  "email": "jane@example.com",
+  "company_name": "Acme Corp",
+  "position": "CTO",
+  "source": "referral",
+  "status": "qualified"
+}
+```
+
+### Delete Prospect
+
+```http
+DELETE /api/prospects/{id}
+Authorization: Bearer <token>
+```
 
 ---
 
-## 📅 Changelog
+## 🔗 Prospect-Product Relationships API 🆕
 
-**2026-03-02** - OAuth Gmail/Outlook ✅
+### Add Product Interest
 
-**À venir** - Envoi emails, prospects
+```http
+POST /api/prospects/{prospect_id}/products
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "product_id": 1,
+  "notes": "Very interested in this product"
+}
+```
+
+### List Product Interests
+
+```http
+GET /api/prospects/{prospect_id}/products
+Authorization: Bearer <token>
+```
+
+**Response:**
+
+```json
+[
+  {
+    "id": 1,
+    "prospect_id": 1,
+    "product_id": 1,
+    "notes": "Very interested",
+    "product": {
+      "id": 1,
+      "name": "Super Widget",
+      "item_number": "WIDGET-001"
+    }
+  }
+]
+```
+
+### Update Product Interest Notes
+
+```http
+PATCH /api/prospects/{prospect_id}/products/{product_id}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "product_id": 1,
+  "notes": "Updated: Extremely interested!"
+}
+```
+
+### Remove Product Interest
+
+```http
+DELETE /api/prospects/{prospect_id}/products/{product_id}
+Authorization: Bearer <token>
+```
 
 ---
 
-🎉 Bon développement ! 🚀
-EOF
+## 🔒 Security
 
-echo "✅ README.md créé !"
+### User Isolation
+
+All resources are scoped to the authenticated user:
+
+- Users can only see/modify their own products
+- Users can only see/modify their own prospects
+- Users can only manage product interests for their own prospects
+
+### IDOR Protection
+
+Attempting to access another user's resources returns `404 Not Found` (not `403 Forbidden`) to prevent resource enumeration.
+
+**Example:**
+
+```http
+GET /api/prospects/1
+Authorization: Bearer <other_user_token>
+
+Response: 404 Not Found
+{
+  "detail": "Prospect with ID 1 not found"
+}
+```
+
+---
+
+## 🗄️ Database Schema
+
+### Users
+
+- `id` (PK)
+- `email` (unique)
+- `hashed_password`
+- `first_name`, `last_name`
+- `gmail_connected`, `outlook_connected`
+
+### Products
+
+- `id` (PK)
+- `user_id` (FK → users)
+- `item_number` (unique per user)
+- `name`
+- `short_description`
+
+### Prospects
+
+- `id` (PK)
+- `user_id` (FK → users)
+- `email` (unique)
+- `first_name`, `last_name`
+- `phone_number`, `position`
+- `company_name`, `company_size`, `market`
+- `source`, `source_notes`, `status`
+
+### Prospect-Products (Junction Table)
+
+- `id` (PK)
+- `prospect_id` (FK → prospects)
+- `product_id` (FK → products)
+- `notes`
+- Unique constraint on (`prospect_id`, `product_id`)
+
+---
+
+## 🧪 Testing
+
+### Manual Testing
+
+1. Start the server: `python -m uvicorn app.main:app --reload`
+2. Open Swagger UI: `http://localhost:8000/docs`
+3. Register a user
+4. Authorize with the token (🔒 button)
+5. Test all endpoints
+
+### Reset Database (Development)
+
+```bash
+python reset_db.py
+```
+
+**⚠️ WARNING:** This deletes ALL data!
+
+### Check Database Status
+
+```bash
+python check_db.py
+```
+
+---
+
+## 📝 Changelog
+
+### v1.1.0 (2026-03-06)
+
+**Added:**
+
+- Prospect-Product relationship management (4 new endpoints)
+- Create prospects with product interests in one step via `product_interest_ids`
+- IDOR protection on all prospect-product routes
+- Validation for duplicate product links
+- Validation for non-existent products
+
+**Fixed:**
+
+- DELETE `/api/products/{id}` now works correctly (was returning 500 error)
+
+**Security:**
+
+- Enhanced user isolation on all prospect-product operations
+- Returns 404 instead of 403 for better security
+
+---
+
+## 🐛 Known Issues
+
+None at this time.
+
+---
+
+## 📞 Support
+
+For issues or questions, please open an issue on GitHub.
+
+---
+
+## 📄 License
+
+[Your License Here]

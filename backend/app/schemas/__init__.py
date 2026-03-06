@@ -3,7 +3,7 @@ Pydantic schemas for Spine CRM.
 """
 from .product import Product, ProductCreate, ProductUpdate
 from .prospect import Prospect, ProspectCreate, ProspectUpdate
-from .prospect_product import ProspectProductLink
+from .prospect_product import ProspectProductLink, ProspectProductResponse
 from .auth import UserRegister, UserLogin, Token, UserResponse
 
 __all__ = [

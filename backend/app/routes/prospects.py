@@ -7,6 +7,7 @@ from typing import List
 
 from app.db import get_db
 from app.models import Prospect as ProspectModel
+from app.models import Product as ProductModel  # ✅ AJOUTER CETTE LIGNE
 from app.models import ProspectProduct as ProspectProductModel
 from app.services.permissions import verify_multiple_resources
 from app.schemas import Prospect, ProspectCreate, ProspectUpdate
@@ -48,7 +49,7 @@ def create_prospect(
           missing_ids = set(product_interest_ids) - found_ids
           raise HTTPException(
               status_code=status.HTTP_400_BAD_REQUEST,
-              detail=f"Product not found: {list(missing_ids)}"
+              detail=f"Products not found: {list(missing_ids)}"
           )
       
       # Verify ownership of all products
