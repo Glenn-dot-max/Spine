@@ -8,7 +8,7 @@ from typing import List
 from app.db import get_db
 from app.models import Product as ProductModel
 from app.schemas import Product, ProductCreate, ProductUpdate
-from app.core.deps import get_current_user
+from app.api.deps import get_current_user
 from app.models.user import User
 
 router = APIRouter(prefix="/api/products", tags=["products"])

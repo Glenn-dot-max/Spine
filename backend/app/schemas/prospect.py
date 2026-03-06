@@ -45,6 +45,20 @@ class ProspectProductLink(BaseModel):
     product_id: int
     notes: Optional[str] = None
 
+    class Config:
+        from_attributes = True
+
+class ProspectProductResponse(BaseModel):
+    """Schema for prospect-product link response."""
+    id: int
+    prospect_id: int
+    product_id: int
+    notes: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class Prospect(ProspectBase):
     """Schema for prospect response (includes DB fields)."""
     id: int
@@ -53,4 +67,4 @@ class Prospect(ProspectBase):
     updated_at: datetime
 
     class Config:
-        from_attribute = True
+        from_attributes = True

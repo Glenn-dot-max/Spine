@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import from routes (existing files)
 from app.routes.auth import router as auth_router
 from app.routes.prospects import router as prospects_router
-from app.routes import auth
+from app.routes import auth, prospects_router, prospect_products_router
 
 # Import from api (new OAuth)
 from app.api.oauth import router as oauth_router
@@ -34,6 +34,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(prospects_router, prefix="/api/prospects", tags=["prospects"])
 app.include_router(oauth_router, prefix="/api/oauth", tags=["oauth"])
+app.include_router(prospect_products_router)
 
 
 @app.get("/")

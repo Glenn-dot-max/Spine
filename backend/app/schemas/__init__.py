@@ -14,6 +14,7 @@ __all__ = [
     "ProspectCreate",
     "ProspectUpdate",
     "ProspectProductLink",
+    "ProspectProductResponse",
     "UserRegister",
     "UserLogin",
     "UserResponse",

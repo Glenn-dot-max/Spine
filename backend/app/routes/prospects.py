@@ -7,6 +7,8 @@ from typing import List
 
 from app.db import get_db
 from app.models import Prospect as ProspectModel
+from app.models import ProspectProduct as ProspectProductModel
+from app.services.permissions import verify_multiple_resources
 from app.schemas import Prospect, ProspectCreate, ProspectUpdate
 from app.api.deps import get_current_user
 from app.models.user import User
@@ -26,14 +28,45 @@ def create_prospect(
 
   # Create the prospect
   db_prospect = ProspectModel(
-    **prospect_data,  # ✅ UTILISE prospect_data au lieu de prospect.model_dump()
+    **prospect_data,  
     user_id=current_user.id
   )
   db.add(db_prospect)
   db.commit()
   db.refresh(db_prospect)
-  
-  # TODO: Handle product_interests linking if needed
+
+  # Handle product interests if provided
+  if product_interest_ids:
+      # Verify all products belong to the user
+      products = db.query(ProductModel).filter(
+            ProductModel.id.in_(product_interest_ids)
+      ).all()
+
+      # Check we found all products
+      if len(products) != len(product_interest_ids):
+          found_ids = {p.id for p in products}
+          missing_ids = set(product_interest_ids) - found_ids
+          raise HTTPException(
+              status_code=status.HTTP_400_BAD_REQUEST,
+              detail=f"Product not found: {list(missing_ids)}"
+          )
+      
+      # Verify ownership of all products
+      verify_multiple_resources(
+          products,
+          current_user.id,
+          "Product"
+      )
+
+      # Create links
+      for product_id in product_interest_ids:
+          link = ProspectProductModel(
+              prospect_id=db_prospect.id,
+              product_id=product_id
+          )
+          db.add(link)
+          
+      db.commit()
   
   return db_prospect
 
