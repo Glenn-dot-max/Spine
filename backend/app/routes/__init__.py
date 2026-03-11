@@ -12,8 +12,8 @@ from .product_import import router as product_import_router
 api_router = APIRouter()
 
 # Include all sub-routers
-api_router.include_router(auth_router)
-api_router.include_router(product_import_router)  # ← AVANT products
-api_router.include_router(products_router)         # ← APRÈS import
+api_router.include_router(auth_router, prefix="/api/auth", tags=["auth"])  # ← AJOUTE prefix ET tags
+api_router.include_router(product_import_router)  
+api_router.include_router(products_router)         
 api_router.include_router(prospects_router)
 api_router.include_router(prospect_products_router)

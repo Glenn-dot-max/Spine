@@ -28,12 +28,12 @@ async def download_import_template():
 
     # Create template with headers and example row
     df = pd.DataFrame({
-        'item_number': ['EXAMPLE-001', 'EXAMPLE-002', 'EXAMPLE-003'],
-        'name': ['Example Product 1', 'Example Product 2', 'Example Product 3'],
+        'item_number': ['EXAMPLE-004', 'EXAMPLE-005', 'EXAMPLE-006'],
+        'name': ['Example Product 12', 'Example Product 24', 'Example Product 36'],
         'short_description': [
-            'This is an example description',
-            'Another example product',
-            'Delete these rows and fill with your data'
+            'This is an  description',
+            'Another test product',
+            'Delete these rows and fill with test data'
         ]
     })
 

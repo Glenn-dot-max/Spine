@@ -4,13 +4,8 @@ Spine CRM - FastAPI Application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import routers
-from app.routes import (
-    auth_router,
-    products_router,
-    prospects_router,
-    prospect_products_router
-)
+# Import the main API router (contains all sub-routers)
+from app.routes import api_router
 from app.api.oauth import router as oauth_router
 
 # Create FastAPI app
@@ -32,10 +27,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
-app.include_router(products_router)
-app.include_router(prospects_router)
-app.include_router(prospect_products_router)
+app.include_router(api_router)  # ← Inclut TOUS les routers (auth, products, import, prospects, etc.)
 app.include_router(oauth_router, prefix="/api/oauth", tags=["oauth"])
 
 
