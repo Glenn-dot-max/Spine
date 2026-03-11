@@ -14,7 +14,7 @@ from app.models.product import Product
 from app.schemas import ProductImportResult, ProductImportPreview
 from app.api.deps import get_current_user
 
-router = APIRouter(prefix="/api/products", tags=["products"])
+router = APIRouter(prefix="/api/products", tags=["product-import"])
 
 @router.get("/import/template")
 async def download_import_template():
@@ -22,12 +22,12 @@ async def download_import_template():
     Download Excel template for product import.
     
     Returns an Excel file with correct columns and example data.
-    Fill this template and uplaod via POST /api/products/import
+    Fill this template and upload via POST /api/products/import
     """
     from fastapi.responses import StreamingResponse
 
     # Create template with headers and example row
-    df = pd.DataFrame([{
+    df = pd.DataFrame({
         'item_number': ['EXAMPLE-001', 'EXAMPLE-002', 'EXAMPLE-003'],
         'name': ['Example Product 1', 'Example Product 2', 'Example Product 3'],
         'short_description': [
@@ -35,11 +35,11 @@ async def download_import_template():
             'Another example product',
             'Delete these rows and fill with your data'
         ]
-    }])
+    })
 
     # Write to Excel with multiple sheets
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         # Product sheet
         df.to_excel(writer, index=False, sheet_name='Products')
 
