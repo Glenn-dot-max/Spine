@@ -16,6 +16,57 @@ from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
+@router.get("/import/template")
+async def download_import_template():
+    """
+    Download Excel template for product import.
+    
+    Returns an Excel file with correct columns and example data.
+    Fill this template and uplaod via POST /api/products/import
+    """
+    from fastapi.responses import StreamingResponse
+
+    # Create template with headers and example row
+    df = pd.DataFrame([{
+        'item_number': ['EXAMPLE-001', 'EXAMPLE-002', 'EXAMPLE-003'],
+        'name': ['Example Product 1', 'Example Product 2', 'Example Product 3'],
+        'short_description': [
+            'This is an example description',
+            'Another example product',
+            'Delete these rows and fill with your data'
+        ]
+    }])
+
+    # Write to Excel with multiple sheets
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Product sheet
+        df.to_excel(writer, index=False, sheet_name='Products')
+
+        # Instructions sheet
+        instructions = pd.DataFrame({
+            'Step': [1, 2, 3, 4, 5, 6],
+            'Instructions': [
+                'Fill the "Products" sheet with your product data.',
+                'Required columns: item_number, name.',
+                'Optional column: short_description.',
+                'Delete the example rows (EXAMPLE-001, EXAMPLE-002, EXAMPLE-003) before uploading.',
+                'Save the file',
+                'Upload via POST /api/products/import in Swagger UI.'
+            ]
+        })
+        instructions.to_excel(writer, index=False, sheet_name='Instructions')
+
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={
+            "Content-Disposition": "attachment; filename=product_import_template.xlsx"  
+        }
+    )
+
 @router.post("/import/preview", response_model=ProductImportPreview)
 async def preview_product_import(
     file: UploadFile = File(...),
