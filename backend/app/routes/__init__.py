@@ -8,15 +8,10 @@ from .prospects import router as prospects_router
 from .prospect_products import router as prospect_products_router
 from .product_import import router as product_import_router
 
-__all__ = [
-    "products_router", 
-    "prospects_router", 
-    "prospect_products_router",
-    "auth_router"
-]
+# Create the main API router
+api_router = APIRouter()
 
-router = APIRouter()
-
+# Include all sub-routers
 api_router.include_router(auth_router)
 api_router.include_router(products_router)
 api_router.include_router(prospects_router)
