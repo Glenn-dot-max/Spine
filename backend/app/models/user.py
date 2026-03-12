@@ -11,6 +11,7 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.product import Product
     from app.models.prospect import Prospect
+    from app.models.campaign import Campaign
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
@@ -43,7 +44,7 @@ class User(Base, TimestampMixin):
     # Relationships
     products: Mapped[list["Product"]] = relationship("Product", back_populates="user", cascade="all, delete-orphan")
     prospects: Mapped[list["Prospect"]] = relationship("Prospect", back_populates="user", cascade="all, delete-orphan")
-
+    campaigns: Mapped[list["Campaign"]] = relationship("Campaign", back_populates="user", cascade="all, delete-orphan")
     @property
     def has_email_configured(self) -> bool:
         """Check if the user has at least one email provider configured."""

@@ -5,6 +5,19 @@ from .product import Product, ProductCreate, ProductUpdate
 from .prospect import Prospect, ProspectCreate, ProspectUpdate
 from .prospect_product import ProspectProductLink, ProspectProductResponse
 from .auth import UserRegister, UserLogin, Token, UserResponse
+from .campaign import (
+    CampaignCreate,
+    CampaignUpdate,
+    CampaignResponse,
+    CampaignContactAdd,
+    CampaignContactBulkAdd,
+    CampaignContactUpdate,
+    CampaignContactResponse,
+    CampaignProductAdd,
+    CampaignProductBulkAdd,
+    CampaignProductResponse,
+    CampaignStats
+)
 
 __all__ = [
     "Product",
@@ -19,6 +32,17 @@ __all__ = [
     "UserLogin",
     "UserResponse",
     "Token",
+    "CampaignCreate",
+    "CampaignUpdate",
+    "CampaignResponse",
+    "CampaignContactAdd",
+    "CampaignContactBulkAdd",
+    "CampaignContactUpdate",
+    "CampaignContactResponse",
+    "CampaignProductAdd",
+    "CampaignProductBulkAdd",
+    "CampaignProductResponse",
+    "CampaignStats"
 ]
 
 from typing import List
