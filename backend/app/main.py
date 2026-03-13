@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import the main API router (contains all sub-routers)
 from app.routes import api_router
 from app.api.oauth import router as oauth_router
+from app.routes import auth, prospects, products, campaigns
 
 # Create FastAPI app
 app = FastAPI(
@@ -29,6 +30,7 @@ app.add_middleware(
 # Include routers
 app.include_router(api_router)  # ← Inclut TOUS les routers (auth, products, import, prospects, etc.)
 app.include_router(oauth_router, prefix="/api/oauth", tags=["oauth"])
+app.include_router(campaigns.router, prefix="/api")
 
 
 @app.get("/")

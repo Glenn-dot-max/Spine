@@ -6,7 +6,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
 
-from app.db.base_class import Base
+from app.models.base import Base
 
 
 class TradeShowStatus(str, enum.Enum):
