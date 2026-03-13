@@ -161,7 +161,7 @@ def update_campaign(
         )
     
     # Update only provided fields
-    update_data = campaign_date.model_dump(exclude_unset=True)
+    update_data = campaign_data.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
         setattr(campaign, field, value)
@@ -543,8 +543,8 @@ def list_campaign_products(
             result.append({
                 "product_id": product.id,
                 "name": product.name,
-                "description": product.description,
-                "category": product.category,
+                "short_description": product.short_description,
+                "item_number": product.item_number,
                 "added_at": cp.added_at
             })
     return result

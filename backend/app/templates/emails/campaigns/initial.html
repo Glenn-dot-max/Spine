@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Follow-up from {{campaign_name}}</title>
+  </head>
+  <body style="font-family: Arial, sans-sherif; line-height: 1.6; color: #333">
+    <p>Hi {{first_name}},</p>
+
+    <p>
+      It was great meeting you at <strong>{{campaign_name}}</strong>{% if
+      campaign_location %} in {{campaign_location}}{% endif %}!
+    </p>
+
+    <p>I wanted to follow up on our conversation about {{company_name}}.</p>
+
+    <p>
+      Would you be available for a quick call next week to discuss how our
+      products can help your business?
+    </p>
+
+    <p>
+      Best regards,<br />
+      {{sender_name}}
+    </p>
+  </body>
+</html>
