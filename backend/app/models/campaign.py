@@ -98,6 +98,8 @@ class CampaignContact(Base):
     response_received_at = Column(DateTime, nullable=True)  # Date de la première réponse reçue
     last_response_content = Column(String, nullable=True)              # Contenu de la dernière réponse reçue
     
+    next_follow_up_scheduled_at = Column(DateTime, nullable=True)  # Date prévue pour la prochaine relance (calculée après chaque email envoyé)
+
     # ====================================================
     
     # Métadonnées

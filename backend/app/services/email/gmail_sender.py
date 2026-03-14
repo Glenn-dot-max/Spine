@@ -137,8 +137,24 @@ class GmailSender:
             ).execute()
             
             # Return message ID and thread ID for database storage
+            # Get the sent message to retrieve RFC 2822 Message-ID
+            sent_msg_full = service.users().messages().get(
+                userId='me',
+                id=sent_message['id'],
+                format='metadata',
+                metadataHeaders=['Message-ID']
+            ).execute()
+
+            # Extract RFC 2822 Message-ID from headers
+            rfc_message_id = None
+            for header in sent_msg_full.get('payload', {}).get('headers', []):
+                if header['name'].lower() == 'message-id':
+                    rfc_message_id = header['value']
+                    break
+
+            # Return both Gmail ID (for API) and RFC Message-ID (for threading)
             return {
-                "message_id": sent_message['id'],
+                "message_id": rfc_message_id or sent_message['id'],  # Prefer RFC ID
                 "thread_id": sent_message['threadId']
             }
             
