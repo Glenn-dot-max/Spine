@@ -13,7 +13,7 @@ from app.schemas.campaign import (
     CampaignUpdate,
     CampaignResponse,
 )
-from app.routes.auth import get_current_user
+from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 

@@ -18,6 +18,14 @@ from .campaign import (
     CampaignProductResponse,
     CampaignStats
 )
+from .email import (
+    EmailSendRequest,
+    EmailSendResponse,
+    BulkEmailSendRequest,
+    BulkEmailSendResponse,
+    EmailPreviewRequest,
+    EmailPreviewResponse,
+)
 
 __all__ = [
     "Product",
@@ -42,7 +50,14 @@ __all__ = [
     "CampaignProductAdd",
     "CampaignProductBulkAdd",
     "CampaignProductResponse",
-    "CampaignStats"
+    "CampaignStats",
+    # Email schemas
+    "EmailSendRequest",
+    "EmailSendResponse",
+    "BulkEmailSendRequest",
+    "BulkEmailSendResponse",
+    "EmailPreviewRequest",
+    "EmailPreviewResponse",
 ]
 
 from typing import List

@@ -28,27 +28,12 @@ router = APIRouter(prefix="/campaigns", tags=["campaign-emails"])
 def send_email_to_contact(
     campaign_id: int,
     prospect_id: int,
-    template_override: Optional[str] = Body(None, description="Override template name"),
+    template_override: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Send email to a specific campaign contact.
-    
-    Path params:
-    - campaign_id: ID of the campaign
-    - prospect_id: ID of the prospect to send to
-    
-    Body (optional):
-    {
-        "template_override": "initial.html"  // Force a specific template
-    }
-    
-    Returns:
-    - Email send confirmation with message_id, thread_id, etc.
-    
-    Example:
-    POST /api/campaigns/123/contacts/456/emails/send
     """
     # Verify campaign exists and belongs to user
     campaign = db.query(Campaign).filter(
@@ -128,33 +113,14 @@ def send_email_to_contact(
 @router.post("/{campaign_id}/emails/send-bulk", response_model=BulkEmailSendResponse)
 def send_bulk_emails(
     campaign_id: int,
-    contact_ids: Optional[List[int]] = Body(None, description="Specific contact IDs to send to"),
-    status_filter: Optional[str] = Body(None, description="Send to contacts with this status"),
-    template_override: Optional[str] = Body(None, description="Override template name"),
+    contact_ids: Optional[List[int]] = Body(None),
+    status_filter: Optional[str] = Body(None),
+    template_override: Optional[str] = Body(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Send emails to multiple campaign contacts in bulk.
-    
-    Path params:
-    - campaign_id: ID of the campaign
-    
-    Body (all optional):
-    {
-        "contact_ids": [456, 789],        // Send to specific contacts
-        "status_filter": "pending",       // OR send to all with status
-        "template_override": "initial.html"  // Force template
-    }
-    
-    If no filters provided, sends to ALL contacts in campaign.
-    
-    Returns:
-    - Summary: total sent, failed, errors list
-    
-    Example:
-    POST /api/campaigns/123/emails/send-bulk
-    {"status_filter": "pending"}
     """
     # Verify campaign exists and belongs to user
     campaign = db.query(Campaign).filter(
@@ -244,22 +210,11 @@ def send_initial_emails(
 ):
     """
     Send initial emails to all pending contacts.
-    
-    Shortcut for: send-bulk with status_filter="pending"
-    
-    Path params:
-    - campaign_id: ID of the campaign
-    
-    Returns:
-    - Summary of sent emails
-    
-    Example:
-    POST /api/campaigns/123/emails/send-initial
     """
     return send_bulk_emails(
         campaign_id=campaign_id,
         contact_ids=None,
-        status_filter="pending",  # Only pending contacts
+        status_filter="pending",
         template_override=None,
         db=db,
         current_user=current_user
@@ -269,30 +224,12 @@ def send_initial_emails(
 @router.post("/{campaign_id}/emails/send-followup", response_model=BulkEmailSendResponse)
 def send_followup_emails(
     campaign_id: int,
-    status_filter: Optional[str] = Body("contacted", description="Status to filter by"),
+    status_filter: Optional[str] = Body("contacted"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Send follow-up emails to contacted prospects.
-    
-    Sends the NEXT email in sequence for each contact.
-    - If contact is at step 1 → sends followup_1.html
-    - If contact is at step 2 → sends followup_2.html
-    
-    Path params:
-    - campaign_id: ID of the campaign
-    
-    Body (optional):
-    {
-        "status_filter": "contacted"  // Default: contacted
-    }
-    
-    Returns:
-    - Summary of sent emails
-    
-    Example:
-    POST /api/campaigns/123/emails/send-followup
     """
     return send_bulk_emails(
         campaign_id=campaign_id,
@@ -316,19 +253,6 @@ def preview_email(
 ):
     """
     Preview email before sending (for testing/debugging).
-    
-    Path params:
-    - campaign_id: ID of the campaign
-    - prospect_id: ID of the prospect
-    
-    Query params:
-    - template_name: Optional template to preview (e.g., "initial.html")
-    
-    Returns:
-    - Rendered email with subject and HTML body
-    
-    Example:
-    GET /api/campaigns/123/contacts/456/emails/preview?template_name=initial.html
     """
     # Verify campaign
     campaign = db.query(Campaign).filter(
@@ -367,7 +291,6 @@ def preview_email(
     
     # Determine template
     if not template_name:
-        # Use current sequence step template
         email_service = EmailService(db)
         template_name = email_service._get_template_name(contact.email_sequence_step)
     
