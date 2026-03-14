@@ -17,7 +17,7 @@ from app.services.oauth import (
     get_outlook_user_info,
 )
 
-router = APIRouter(prefix="/oauth", tags=["oauth"])
+router = APIRouter(tags=["oauth"])
 
 # Store state tokens temporarily (in production, use Redis or database)
 oauth_states = {}
