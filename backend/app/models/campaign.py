@@ -93,6 +93,10 @@ class CampaignContact(Base):
     
     # Message ID du dernier email (pour Reply-To)
     email_message_id = Column(String(255), nullable=True)
+
+    # Response tracking
+    response_received_at = Column(DateTime, nullable=True)  # Date de la première réponse reçue
+    last_response_content = Column(String, nullable=True)              # Contenu de la dernière réponse reçue
     
     # ====================================================
     

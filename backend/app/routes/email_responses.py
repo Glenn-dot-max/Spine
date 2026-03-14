@@ -9,8 +9,7 @@ from typing import List, Dict
 
 from app.db import get_db
 from app.models.user import User
-from app.models.campaign import Campaign
-from app.models.campaign_contact import CampaignContact
+from app.models.campaign import Campaign, CampaignContact
 from app.models.prospect import Prospect
 from app.api.deps import get_current_user
 from app.services.email.gmail_response_checker import check_gmail_thread_for_response
