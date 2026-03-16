@@ -46,17 +46,23 @@ class EmailService:
         }
         return templates.get(sequence_step, "initial.html")
     
-    def _get_email_subject(self, campaign_name: str, sequence_step: int) -> str:
+    def get_email_subject(self, campaign_name: str, sequence_step: int, original_subject: Optional[str] = None) -> str:
         """
         Generate email subject based on sequence step.
         
         Args:
             campaign_name: Name of the campaign
             sequence_step: Current step
-        
+            original_subject: Original subject (for Re: threads)
+            
         Returns:
             Email subject line
         """
+        # FOr follow-ups use RE:
+        if sequence_step > 0 and original_subject:
+            return f"RE: {original_subject}"
+        
+        # Initial email subjects
         subjects = {
             0: f"Great meeting you at {campaign_name}",
             1: f"Following up - {campaign_name}",
@@ -64,7 +70,7 @@ class EmailService:
             3: f"Thanks for your time at {campaign_name}",
         }
         return subjects.get(sequence_step, f"Following up from {campaign_name}")
-    
+
     def send_campaign_email(
         self,
         campaign: Campaign,
@@ -139,9 +145,12 @@ class EmailService:
         except Exception as e:
             raise Exception(f"Failed to render email template: {str(e)}")
         
-        # STEP 4: Generate subject
-        subject = self._get_email_subject(campaign.name, contact.email_sequence_step)
-        
+        original_subject = None
+        if contact.email_sequence_step >= 1:
+            original_subject = self.get_email_subject(campaign.name, 0)
+
+        subject = self.get_email_subject(campaign.name, contact.email_sequence_step, original_subject)
+
         # STEP 5: Send the email via the right provider
         try:
             if provider == "gmail":
