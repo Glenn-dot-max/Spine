@@ -16,6 +16,7 @@ from app.services.oauth import (
     exchange_outlook_code,
     get_outlook_user_info,
 )
+from app.api.deps import get_current_user  
 
 router = APIRouter(tags=["oauth"])
 
@@ -23,25 +24,9 @@ router = APIRouter(tags=["oauth"])
 oauth_states = {}
 
 
-# ✅ FONCTION TEMPORAIRE POUR TESTER SANS AUTH
-def get_test_user(db: Session = Depends(get_db)):
-    """Get or create a test user for development (TEMPORARY)."""
-    user = db.query(User).first()
-    if not user:
-        user = User(
-            email="test@example.com",
-            username="testuser",
-            hashed_password="dummy"
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
-
-
 @router.get("/gmail/connect")
 async def connect_gmail(
-    current_user: User = Depends(get_test_user),  # ✅ Modifié
+    current_user: User = Depends(get_current_user),  # ✅ Modifié
 ):
     """
     Initiate Gmail OAuth flow.
@@ -112,7 +97,7 @@ async def gmail_callback(
 
 @router.get("/outlook/connect")
 async def connect_outlook(
-    current_user: User = Depends(get_test_user),  # ✅ Modifié
+    current_user: User = Depends(get_current_user),  # ✅ Modifié
 ):
     """
     Initiate Outlook OAuth flow.
@@ -184,7 +169,7 @@ async def outlook_callback(
 @router.post("/disconnect/{provider}")
 async def disconnect_provider(
     provider: str,
-    current_user: User = Depends(get_test_user),  # ✅ Modifié
+    current_user: User = Depends(get_current_user),  # ✅ Modifié
     db: Session = Depends(get_db),
 ):
     """
@@ -223,7 +208,7 @@ async def disconnect_provider(
 
 @router.get("/status")
 async def oauth_status(
-    current_user: User = Depends(get_test_user),  # ✅ Modifié
+    current_user: User = Depends(get_current_user),  # ✅ Modifié
 ):
     """
     Get OAuth connection status for current user.
