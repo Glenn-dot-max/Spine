@@ -2,10 +2,25 @@
 Outlook response checker - detects replies from prospects.
 """
 from typing import Dict
+import base64
+import json
 import requests
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.user import User
+from app.services.oauth.outlook_oauth import refresh_outlook_token
+
+
+def _refresh_outlook_access_token(user: User, db: Session) -> str:
+    """Refresh the user's Outlook access token and persist it to the DB."""
+    tokens = refresh_outlook_token(user.outlook_refresh_token)
+    user.outlook_access_token = tokens["access_token"]
+    if tokens.get("refresh_token"):
+        user.outlook_refresh_token = tokens["refresh_token"]
+    db.commit()
+    db.refresh(user)
+    return tokens["access_token"]
 
 
 def check_outlook_conversation_for_response(
@@ -39,10 +54,11 @@ def check_outlook_conversation_for_response(
         url = f"https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '{conversation_id}'&$orderby=receivedDateTime desc"
         response = requests.get(url, headers=headers)
         
-        # Handle token expiration
+        # Handle token expiration by refreshing and retrying once
         if response.status_code == 401:
-            # Refresh token logic here
-            pass
+            access_token = _refresh_outlook_access_token(user, db)
+            headers["Authorization"] = f"Bearer {access_token}"
+            response = requests.get(url, headers=headers)
         
         response.raise_for_status()
         messages = response.json().get('value', [])

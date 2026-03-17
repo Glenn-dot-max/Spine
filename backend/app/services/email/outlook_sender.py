@@ -2,8 +2,10 @@
 Outlook email sender using OAuth tokens.
 Sends emails via Microsoft Graph API and handles token refresh.
 """
+import base64
+import json
 import requests
-import msal
+from datetime import datetime, timezone
 from typing import Optional, Dict
 from sqlalchemy.orm import Session
 from app.services.oauth.outlook_oauth import refresh_outlook_token
@@ -39,35 +41,57 @@ class OutlookSender:
         if not user.outlook_access_token:
             raise ValueError("User does not have Outlook access token")
     
+    def _is_token_expired(self, token: str) -> bool:
+        """
+        Check if a JWT access token is expired by decoding its payload.
+
+        Returns:
+            True if expired or unreadable, False if still valid.
+        """
+        try:
+            # JWT is three base64url-encoded parts separated by dots
+            payload_b64 = token.split('.')[1]
+            # Add padding so base64 can decode it
+            payload_b64 += '=' * (4 - len(payload_b64) % 4)
+            decoded = json.loads(base64.urlsafe_b64decode(payload_b64))
+            exp = decoded.get("exp", 0)
+            return datetime.now(timezone.utc).timestamp() >= exp
+        except Exception:
+            # If we can't decode, assume expired to trigger a refresh
+            return True
+
     def _refresh_token_if_needed(self) -> str:
         """
-        Refresh Outlook access token if needed.
-        
+        Return a valid access token, refreshing proactively if the current one is expired.
+
         Returns:
             Valid access token
         """
-        # Try to use current token first
-        # If it fails, we'll catch and refresh
-        
-        # For now, we'll just return current token
-        # Microsoft tokens last 1 hour, we refresh on error
+        if self._is_token_expired(self.user.outlook_access_token):
+            return self._refresh_access_token()
         return self.user.outlook_access_token
     
     def _refresh_access_token(self) -> str:
         """
-        Force refresh the Outlook access token.
-        
+        Force refresh the Outlook access token using the stored refresh token.
+        Saves both the new access token and the new refresh token (if returned) to the DB.
+
         Returns:
             New access token
         """
         try:
-            new_token = refresh_outlook_token(self.user.outlook_refresh_token)
+            tokens = refresh_outlook_token(self.user.outlook_refresh_token)
 
-            self.user.outlook_access_token = new_token
+            self.user.outlook_access_token = tokens["access_token"]
+            # MSAL may issue a new refresh token; save it if provided
+            if tokens.get("refresh_token"):
+                self.user.outlook_refresh_token = tokens["refresh_token"]
+
             self.db.commit()
+            self.db.refresh(self.user)
 
-            return new_token
-        
+            return tokens["access_token"]
+
         except Exception as e:
             raise Exception(f"Failed to refresh Outlook token: {str(e)}")
 
@@ -173,10 +197,15 @@ class OutlookSender:
                 }
             
         except requests.exceptions.HTTPError as e:
-            error_detail = e.response.json() if e.response else str(e)
-            raise Exception(f"Outlook API error: {error_detail}")
+            error_body = ""
+            try:
+                error_body = e.response.json()
+            except Exception:
+                error_body = str(e)
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            raise Exception(f"Outlook API error: {status_code} - {error_body}")
         except Exception as e:
-            raise Exception(f"Failed to send email via Outlook: {str(e)}")
+            raise Exception(f"Failed to send email via Outlook: {str(e)}") from e
 
 
 def send_email_via_outlook(

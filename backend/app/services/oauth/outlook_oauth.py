@@ -89,8 +89,12 @@ def get_outlook_user_info(access_token: str) -> dict:
     }
 
 
-def refresh_outlook_token(refresh_token: str) -> str:
-    """Refresh Outlook access token."""
+def refresh_outlook_token(refresh_token: str) -> dict:
+    """Refresh Outlook access token.
+    
+    Returns:
+        dict with 'access_token' and optionally 'refresh_token' if a new one was issued.
+    """
     app = msal.ConfidentialClientApplication(
         MICROSOFT_CLIENT_ID,
         authority=AUTHORITY,
@@ -105,4 +109,7 @@ def refresh_outlook_token(refresh_token: str) -> str:
     if "error" in result:
         raise Exception(f"Error refreshing token: {result.get('error_description')}")
     
-    return result.get("access_token")
+    return {
+        "access_token": result.get("access_token"),
+        "refresh_token": result.get("refresh_token"),
+    }
