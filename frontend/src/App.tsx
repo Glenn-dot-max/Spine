@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 import Prospects from "./pages/Prospects";
 
@@ -35,6 +36,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Prospects />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/login" element={<Login />} />
         </Routes>
       </div>
     </Router>
