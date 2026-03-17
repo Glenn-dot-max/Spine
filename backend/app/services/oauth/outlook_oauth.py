@@ -72,9 +72,17 @@ def get_outlook_user_info(access_token: str) -> dict:
 
     email = user_info.get("mail") or user_info.get("userPrincipalName")
 
+    # Clean up external user format
     if "#EXT#" in email:
         email = email.split("#EXT#")[0].replace("_", "@")
-    
+
+    # Clean up double @ 
+    if email.count("@") > 1:
+        parts = email.split("@")
+        local_part = "_".join(parts[:-1])
+        domain = parts[-1]
+        email = f"{local_part}@{domain}"
+
     return {
         "email": email,
         "name": user_info.get("displayName"),

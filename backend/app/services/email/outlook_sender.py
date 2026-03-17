@@ -6,6 +6,7 @@ import requests
 import msal
 from typing import Optional, Dict
 from sqlalchemy.orm import Session
+from app.services.oauth.outlook_oauth import refresh_outlook_token
 
 from app.models.user import User
 from app.core.config import (
@@ -59,32 +60,17 @@ class OutlookSender:
         Returns:
             New access token
         """
-        authority = f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}"
+        try:
+            new_token = refresh_outlook_token(self.user.outlook_refresh_token)
+
+            self.user.outlook_access_token = new_token
+            self.db.commit()
+
+            return new_token
         
-        app = msal.ConfidentialClientApplication(
-            MICROSOFT_CLIENT_ID,
-            authority=authority,
-            client_credential=MICROSOFT_CLIENT_SECRET,
-        )
-        
-        result = app.acquire_token_by_refresh_token(
-            self.user.outlook_refresh_token,
-            scopes=[
-                "https://graph.microsoft.com/Mail.Send",
-                "https://graph.microsoft.com/Mail.Read",
-            ]
-        )
-        
-        if "error" in result:
-            raise Exception(f"Token refresh failed: {result.get('error_description')}")
-        
-        # Save new token to database
-        new_token = result["access_token"]
-        self.user.outlook_access_token = new_token
-        self.db.commit()
-        
-        return new_token
-    
+        except Exception as e:
+            raise Exception(f"Failed to refresh Outlook token: {str(e)}")
+
     def send_email(
         self,
         to_email: str,
