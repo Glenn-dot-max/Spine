@@ -8,6 +8,7 @@ from .prospects import router as prospects_router
 from .prospect_products import router as prospect_products_router
 from .product_import import router as product_import_router
 from .prospect_import import router as prospect_import_router
+from .campaigns import router as campaigns_router
 from .campaign_emails import router as campaign_emails_router
 from .email_responses import router as email_responses_router
 from .followups import router as followups_router
@@ -22,6 +23,7 @@ api_router.include_router(prospect_import_router)
 api_router.include_router(products_router)         
 api_router.include_router(prospects_router)
 api_router.include_router(prospect_products_router)
+api_router.include_router(campaigns_router, prefix="/api")
 api_router.include_router(campaign_emails_router, prefix="/api")
 api_router.include_router(email_responses_router, prefix="/api")
 api_router.include_router(followups_router, prefix="/api")

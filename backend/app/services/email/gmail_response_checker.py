@@ -48,8 +48,14 @@ def check_gmail_thread_for_response(
     # Refresh token if expired
     if credentials.expired and credentials.refresh_token:
         credentials.refresh(Request())
-        user.gmail_access_token = credentials.token
+
+        db_user = db.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise Exception("User not found")
+
+        db_user.gmail_access_token = credentials.token
         db.commit()
+        db.refresh(db_user)
     
     # Build Gmail service
     service = build('gmail', 'v1', credentials=credentials)

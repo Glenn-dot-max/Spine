@@ -15,13 +15,19 @@ from app.services.oauth.outlook_oauth import refresh_outlook_token
 def _refresh_outlook_access_token(user: User, db: Session) -> str:
     """Refresh the user's Outlook access token and persist it to the DB."""
     tokens = refresh_outlook_token(user.outlook_refresh_token)
-    user.outlook_access_token = tokens["access_token"]
-    if tokens.get("refresh_token"):
-        user.outlook_refresh_token = tokens["refresh_token"]
-    db.commit()
-    db.refresh(user)
-    return tokens["access_token"]
 
+    db_user = db.query(User).filter(User.id == user.id).first()
+    if not db_user:
+        raise Exception("User not found")
+    
+    db_user.outlook_access_token = tokens["access_token"]
+    if tokens.get("refresh_token"):
+        db_user.outlook_refresh_token = tokens["refresh_token"]
+
+    db.commit()
+    db.refresh(db_user)
+
+    return tokens["access_token"]
 
 def check_outlook_conversation_for_response(
     user: User,

@@ -27,10 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
 # Include routers
-app.include_router(api_router)  # ← Inclut TOUS les routers (auth, products, import, prospects, etc.)
+app.include_router(api_router)
 app.include_router(oauth_router, prefix="/api/oauth", tags=["oauth"])
-app.include_router(campaigns.router, prefix="/api")
 
 
 @app.get("/")
