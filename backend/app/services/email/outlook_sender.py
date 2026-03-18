@@ -67,9 +67,17 @@ class OutlookSender:
         Returns:
             Valid access token
         """
-        if self._is_token_expired(self.user.outlook_access_token):
+        print("🔍 [DEBUG] Checking if token is expired...")
+        is_expired = self._is_token_expired(self.user.outlook_access_token)
+        print(f"🔍 [DEBUG] Token expired: {is_expired}")
+        
+        if is_expired:
+            print("🔄 [DEBUG] Refreshing token...")
             return self._refresh_access_token()
+        
+        print("✅ [DEBUG] Token still valid")
         return self.user.outlook_access_token
+        
     
     def _refresh_access_token(self) -> str:
         """
@@ -80,20 +88,36 @@ class OutlookSender:
             New access token
         """
         try:
+            print("🔄 [DEBUG] Calling refresh_outlook_token...")
             tokens = refresh_outlook_token(self.user.outlook_refresh_token)
+            print("✅ [DEBUG] Got new tokens")
 
-            self.user.outlook_access_token = tokens["access_token"]
+            # ✅ Refetch user from DB to attach to session
+            from app.models.user import User
+            print("🔍 [DEBUG] Fetching user from DB...")
+            db_user = self.db.query(User).filter(User.id == self.user.id).first()
+            if not db_user:
+                raise Exception("User not found")
+            
+            print("💾 [DEBUG] Saving new tokens to DB...")
+            db_user.outlook_access_token = tokens["access_token"]
             # MSAL may issue a new refresh token; save it if provided
             if tokens.get("refresh_token"):
-                self.user.outlook_refresh_token = tokens["refresh_token"]
+                db_user.outlook_refresh_token = tokens["refresh_token"]
 
             self.db.commit()
-            self.db.refresh(self.user)
+            self.db.refresh(db_user)
+            print("✅ [DEBUG] Tokens saved to DB")
+
+            # Update instance variable
+            self.user = db_user
 
             return tokens["access_token"]
 
         except Exception as e:
+            print(f"❌ [DEBUG] Refresh failed: {str(e)}")
             raise Exception(f"Failed to refresh Outlook token: {str(e)}")
+
 
     def send_email(
         self,
@@ -122,8 +146,10 @@ class OutlookSender:
             Exception: If sending fails
         """
         try:
+            print("📧 [DEBUG] Starting send_email...")
             # Get access token
             access_token = self._refresh_token_if_needed()
+            print(f"🔑 [DEBUG] Got access token (length: {len(access_token)})")
             
             # Prepare Graph API request
             url = "https://graph.microsoft.com/v1.0/me/sendMail"
@@ -167,17 +193,23 @@ class OutlookSender:
                 }
             
             # Send the email
+            print(f"📤 [DEBUG] Sending POST to {url}")
             response = requests.post(url, headers=headers, json=email_payload)
+            print(f"📥 [DEBUG] Response status: {response.status_code}")
             
             # Handle token expiration
             if response.status_code == 401:
+                print("🔄 [DEBUG] Got 401, forcing refresh and retry...")
                 # Token expired, refresh and retry
                 access_token = self._refresh_access_token()
                 headers["Authorization"] = f"Bearer {access_token}"
                 response = requests.post(url, headers=headers, json=email_payload)
+                print(f"📥 [DEBUG] Retry response status: {response.status_code}")
             
             # Check for errors
             response.raise_for_status()
+            
+            print("✅ [DEBUG] Email sent successfully!")
             
             # For replies, Microsoft doesn't return message details
             # For new messages, we get the sent message
@@ -203,8 +235,10 @@ class OutlookSender:
             except Exception:
                 error_body = str(e)
             status_code = e.response.status_code if e.response is not None else "unknown"
+            print(f"❌ [DEBUG] HTTP Error: {status_code} - {error_body}")
             raise Exception(f"Outlook API error: {status_code} - {error_body}")
         except Exception as e:
+            print(f"❌ [DEBUG] Exception: {str(e)}")
             raise Exception(f"Failed to send email via Outlook: {str(e)}") from e
 
 

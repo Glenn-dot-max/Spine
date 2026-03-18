@@ -17,7 +17,7 @@ SCOPES = [
     "https://graph.microsoft.com/User.Read",
 ]
 
-AUTHORITY = f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}"
+AUTHORITY = "https://login.microsoftonline.com/common"
 
 
 def get_outlook_auth_url(state: str) -> str:
@@ -32,6 +32,7 @@ def get_outlook_auth_url(state: str) -> str:
         scopes=SCOPES,
         state=state,
         redirect_uri=MICROSOFT_REDIRECT_URI,
+        prompt="select_account",
     )
     
     return auth_url

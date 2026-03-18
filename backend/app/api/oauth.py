@@ -169,7 +169,7 @@ async def outlook_callback(
 @router.post("/disconnect/{provider}")
 async def disconnect_provider(
     provider: str,
-    current_user: User = Depends(get_current_user),  # ✅ Modifié
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -181,27 +181,35 @@ async def disconnect_provider(
             detail="Invalid provider"
         )
     
+    db_user = db.query(User).filter(User.id == current_user.id).first()
+    if not db_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
     if provider == "gmail":
-        current_user.gmail_connected = False
-        current_user.gmail_email = None
-        current_user.gmail_access_token = None
-        current_user.gmail_refresh_token = None
+        db_user.gmail_connected = False
+        db_user.gmail_email = None
+        db_user.gmail_access_token = None
+        db_user.gmail_refresh_token = None
         
         # Switch default provider if needed
-        if current_user.default_email_provider == "gmail":
-            current_user.default_email_provider = "outlook" if current_user.outlook_connected else None
-    
+        if db_user.default_email_provider == "gmail":
+            db_user.default_email_provider = "outlook" if db_user.outlook_connected else None
+
     elif provider == "outlook":
-        current_user.outlook_connected = False
-        current_user.outlook_email = None
-        current_user.outlook_access_token = None
-        current_user.outlook_refresh_token = None
+        db_user.outlook_connected = False
+        db_user.outlook_email = None
+        db_user.outlook_access_token = None
+        db_user.outlook_refresh_token = None
         
         # Switch default provider if needed
-        if current_user.default_email_provider == "outlook":
-            current_user.default_email_provider = "gmail" if current_user.gmail_connected else None
+        if db_user.default_email_provider == "outlook":
+            db_user.default_email_provider = "gmail" if db_user.gmail_connected else None
     
     db.commit()
+    db.refresh(db_user)
     
     return {"message": f"{provider.capitalize()} disconnected successfully"}
 
