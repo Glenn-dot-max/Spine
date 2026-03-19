@@ -5,8 +5,10 @@ Sends emails via Microsoft Graph API and handles token refresh.
 import base64
 import json
 import requests
+import uuid
+import time
 from datetime import datetime, timezone
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from sqlalchemy.orm import Session
 from app.services.oauth.outlook_oauth import refresh_outlook_token
 
@@ -118,6 +120,89 @@ class OutlookSender:
             print(f"❌ [DEBUG] Refresh failed: {str(e)}")
             raise Exception(f"Failed to refresh Outlook token: {str(e)}")
 
+    def _find_sent_message_robust(
+        self,
+        headers: Dict,
+        tracking_id: str,
+        conversation_id: str,
+        recipient_email: str,
+        max_retries: int = 3,
+        retry_delay: int = 2
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Robustly find sent message using multiple strategies with retries.
+        
+        Strategy:
+        1. Try to find by tracking header (most reliable)
+        2. Fallback to conversation_id + recipient match
+        3. Retry with increasing delays if not found
+        
+        Args:
+            headers: Auth headers
+            tracking_id: Unique tracking ID
+            conversation_id: Conversation ID from draft
+            recipient_email: Recipient email to verify
+            max_retries: Number of retry attempts
+            retry_delay: Initial delay between retries (seconds)
+        
+        Returns:
+            Tuple of (message_id, conversation_id) or (None, None)
+        """
+        for attempt in range(max_retries):
+            print(f"🔍 [DEBUG] Search attempt {attempt + 1}/{max_retries}")
+            
+            # Wait before searching (increases with each retry)
+            wait_time = retry_delay * (attempt + 1)
+            print(f"⏳ [DEBUG] Waiting {wait_time}s for message to appear in SentItems...")
+            time.sleep(wait_time)
+            
+            # Query SentItems - get last 20 messages
+            sent_url = "https://graph.microsoft.com/v1.0/me/mailFolders/SentItems/messages"
+            params = {
+                "$top": 20,
+                "$orderby": "sentDateTime desc",
+                "$select": "id,conversationId,subject,toRecipients,sentDateTime,internetMessageHeaders"
+            }
+            
+            try:
+                response = requests.get(sent_url, headers=headers, params=params)
+                response.raise_for_status()
+                messages = response.json().get("value", [])
+                
+                print(f"📬 [DEBUG] Found {len(messages)} recent sent messages")
+                
+                # Strategy 1: Find by tracking header (most reliable)
+                for msg in messages:
+                    msg_headers = msg.get("internetMessageHeaders", [])
+                    for header in msg_headers:
+                        if header.get("name") == "X-Spine-Tracking-ID" and header.get("value") == tracking_id:
+                            message_id = msg.get("id")
+                            conv_id = msg.get("conversationId")
+                            print(f"✅ [DEBUG] Found by tracking header!")
+                            return (message_id, conv_id)
+                
+                print("⚠️ [DEBUG] Not found by tracking header, trying conversation_id...")
+                
+                # Strategy 2: Find by conversation_id + recipient
+                for msg in messages:
+                    if msg.get("conversationId") == conversation_id:
+                        recipients = msg.get("toRecipients", [])
+                        if recipients:
+                            recipient = recipients[0]["emailAddress"]["address"]
+                            if recipient.lower() == recipient_email.lower():
+                                message_id = msg.get("id")
+                                conv_id = msg.get("conversationId")
+                                print(f"✅ [DEBUG] Found by conversation_id + recipient match!")
+                                return (message_id, conv_id)
+                
+                print("⚠️ [DEBUG] Message not found in this attempt, will retry...")
+                
+            except Exception as e:
+                print(f"❌ [DEBUG] Error during search: {str(e)}")
+        
+        # All retries exhausted
+        print("❌ [DEBUG] Could not find sent message after all retries")
+        return (None, None)
 
     def send_email(
         self,
@@ -147,20 +232,149 @@ class OutlookSender:
         """
         try:
             print("📧 [DEBUG] Starting send_email...")
+            print(f"📧 [DEBUG] reply_to_message_id: {reply_to_message_id}")
+            print(f"📧 [DEBUG] conversation_id: {conversation_id}")
+
             # Get access token
             access_token = self._refresh_token_if_needed()
             print(f"🔑 [DEBUG] Got access token (length: {len(access_token)})")
-            
-            # Prepare Graph API request
-            url = "https://graph.microsoft.com/v1.0/me/sendMail"
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
             }
-            
-            # Build email payload (Microsoft Graph format)
-            email_payload = {
-                "message": {
+
+            # ============ FOLLOW-UP EMAIL (REPLY) ================
+            if reply_to_message_id:
+                print("🔄 [DEBUG] This is a FOLLOW-UP (reply)")
+                print(f"🔗 [DEBUG] Original message ID: {reply_to_message_id}")
+                print(f"🔗 [DEBUG] Conversation ID: {conversation_id}")
+
+                # Generate unique tracking header
+                tracking_id = str(uuid.uuid4())
+                print(f"🔖 [DEBUG] Tracking ID: {tracking_id}")
+
+                # Step 1: Get the original message to extract headers
+                get_message_url = f"https://graph.microsoft.com/v1.0/me/messages/{reply_to_message_id}"
+                params = {"$select": "subject,internetMessageId"}
+                
+                print(f"📤 [DEBUG] Fetching original message headers...")
+                response = requests.get(get_message_url, headers=headers, params=params)
+                if response.status_code == 401:
+                    access_token = self._refresh_access_token()
+                    headers["Authorization"] = f"Bearer {access_token}"
+                    response = requests.get(get_message_url, headers=headers, params=params)
+                
+                response.raise_for_status()
+                original_message = response.json()
+                original_subject = original_message.get("subject", "")
+                internet_message_id = original_message.get("internetMessageId", "")
+                
+                print(f"✅ [DEBUG] Original subject: {original_subject}")
+                print(f"✅ [DEBUG] Original internet message ID: {internet_message_id}")
+
+                # Prepare subject with "Re:" if not already there
+                follow_up_subject = original_subject
+                if not follow_up_subject.lower().startswith("re:"):
+                    follow_up_subject = f"Re: {original_subject}"
+
+                # Step 2: Create a NEW message (not a reply) with threading headers
+                create_message_url = "https://graph.microsoft.com/v1.0/me/messages"
+                
+                # Build extended properties for threading
+                extended_props = []
+                if internet_message_id:
+                    # PidTagInReplyToId - links this message to the original
+                    extended_props.append({
+                        "id": "String 0x1042",
+                        "value": internet_message_id
+                    })
+                
+                message_payload = {
+                    "subject": follow_up_subject,
+                    "body": {
+                        "contentType": "HTML",
+                        "content": html_body
+                    },
+                    "toRecipients": [
+                        {
+                            "emailAddress": {
+                                "address": to_email
+                            }
+                        }
+                    ],
+                    "internetMessageHeaders": [
+                        {
+                            "name": "X-Spine-Tracking-ID",
+                            "value": tracking_id
+                        }
+                    ]
+                }
+                
+                # Add extended properties if we have them
+                if extended_props:
+                    message_payload["singleValueExtendedProperties"] = extended_props
+
+                print(f"📤 [DEBUG] Creating follow-up message draft...")
+                response = requests.post(create_message_url, headers=headers, json=message_payload)
+                if response.status_code == 401:
+                    access_token = self._refresh_access_token()
+                    headers["Authorization"] = f"Bearer {access_token}"
+                    response = requests.post(create_message_url, headers=headers, json=message_payload)
+
+                response.raise_for_status()
+                draft = response.json()
+                draft_id = draft.get("id")
+                draft_conversation_id = draft.get("conversationId")
+
+                print(f"✅ [DEBUG] Follow-up draft created: {draft_id}")
+                print(f"✅ [DEBUG] Draft conversation ID: {draft_conversation_id}")
+
+                # Step 3: Send the draft
+                send_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send"
+                print(f"📤 [DEBUG] Sending follow-up draft...")
+
+                response = requests.post(send_url, headers=headers)
+                response.raise_for_status()
+                
+                print("✅ [DEBUG] Follow-up sent successfully!")
+
+                # Step 4: Retrieve the sent message with ROBUST SEARCH
+                print("🔍 [DEBUG] Retrieving sent follow-up message...")
+                
+                sent_message_id, sent_conversation_id = self._find_sent_message_robust(
+                    headers=headers,
+                    tracking_id=tracking_id,
+                    conversation_id=draft_conversation_id,
+                    recipient_email=to_email,
+                    max_retries=3,
+                    retry_delay=2
+                )
+                
+                if sent_message_id:
+                    print(f"✅ [DEBUG] Successfully retrieved sent follow-up ID: {sent_message_id}")
+                    return {
+                        "message_id": sent_message_id,
+                        "conversation_id": sent_conversation_id or conversation_id
+                    }
+                else:
+                    print("⚠️ [DEBUG] Could not retrieve sent message, using draft IDs")
+                    return {
+                        "message_id": draft_id,
+                        "conversation_id": conversation_id or draft_conversation_id
+                    }
+
+            # ============ INITIAL EMAIL ================
+            else:
+                print("📧 [DEBUG] This is an INITIAL email")
+
+                # Generate unique tracking header
+                tracking_id = str(uuid.uuid4())
+                print(f"🔖 [DEBUG] Tracking ID: {tracking_id}")
+
+                # Step 1: Create draft message with tracking header
+                create_message_url = "https://graph.microsoft.com/v1.0/me/messages"
+                message_payload = {
                     "subject": subject,
                     "body": {
                         "contentType": "HTML",
@@ -172,62 +386,64 @@ class OutlookSender:
                                 "address": to_email
                             }
                         }
-                    ]
-                },
-                "saveToSentItems": True
-            }
-            
-            # Add threading headers if this is a reply
-            if reply_to_message_id:
-                # Microsoft uses different approach for threading
-                # We need to reply to the original message
-                url = f"https://graph.microsoft.com/v1.0/me/messages/{reply_to_message_id}/reply"
-                # Simplified payload for reply
-                email_payload = {
-                    "message": {
-                        "body": {
-                            "contentType": "HTML",
-                            "content": html_body
+                    ],
+                    "internetMessageHeaders": [
+                        {
+                            "name": "X-Spine-Tracking-ID",
+                            "value": tracking_id
                         }
+                    ]
+                }
+
+                print(f"📤 [DEBUG] Creating draft message...")
+                response = requests.post(create_message_url, headers=headers, json=message_payload)
+                if response.status_code == 401:
+                    access_token = self._refresh_access_token()
+                    headers["Authorization"] = f"Bearer {access_token}"
+                    response = requests.post(create_message_url, headers=headers, json=message_payload)
+
+                response.raise_for_status()
+                draft = response.json()
+                draft_id = draft.get("id")
+                draft_conversation_id = draft.get("conversationId")
+
+                print(f"✅ [DEBUG] Draft created with ID: {draft_id}")
+                print(f"✅ [DEBUG] Draft conversation ID: {draft_conversation_id}")
+
+                # Step 2: Send the draft
+                send_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send"
+                print(f"📤 [DEBUG] Sending draft message...")
+
+                response = requests.post(send_url, headers=headers)
+                response.raise_for_status()
+                
+                print("✅ [DEBUG] Draft sent successfully!")
+
+                # Step 3: Retrieve the sent message with ROBUST SEARCH
+                print("🔍 [DEBUG] Retrieving sent message with robust search...")
+                
+                sent_message_id, sent_conversation_id = self._find_sent_message_robust(
+                    headers=headers,
+                    tracking_id=tracking_id,
+                    conversation_id=draft_conversation_id,
+                    recipient_email=to_email,
+                    max_retries=3,
+                    retry_delay=2
+                )
+                
+                if sent_message_id:
+                    print(f"✅ [DEBUG] Successfully retrieved sent message ID: {sent_message_id}")
+                    return {
+                        "message_id": sent_message_id,
+                        "conversation_id": sent_conversation_id
                     }
-                }
-            
-            # Send the email
-            print(f"📤 [DEBUG] Sending POST to {url}")
-            response = requests.post(url, headers=headers, json=email_payload)
-            print(f"📥 [DEBUG] Response status: {response.status_code}")
-            
-            # Handle token expiration
-            if response.status_code == 401:
-                print("🔄 [DEBUG] Got 401, forcing refresh and retry...")
-                # Token expired, refresh and retry
-                access_token = self._refresh_access_token()
-                headers["Authorization"] = f"Bearer {access_token}"
-                response = requests.post(url, headers=headers, json=email_payload)
-                print(f"📥 [DEBUG] Retry response status: {response.status_code}")
-            
-            # Check for errors
-            response.raise_for_status()
-            
-            print("✅ [DEBUG] Email sent successfully!")
-            
-            # For replies, Microsoft doesn't return message details
-            # For new messages, we get the sent message
-            if reply_to_message_id:
-                return {
-                    "message_id": reply_to_message_id,  # Use original message ID
-                    "conversation_id": conversation_id or reply_to_message_id
-                }
-            else:
-                # Get the sent message details
-                # Microsoft Graph sendMail doesn't return message ID directly
-                # We need to query sent items to get it
-                # For now, return empty - will be filled by next email
-                return {
-                    "message_id": "",  # Will be updated on next send
-                    "conversation_id": ""
-                }
-            
+                else:
+                    print("⚠️ [DEBUG] Could not retrieve sent message, using draft IDs as fallback")
+                    return {
+                        "message_id": draft_id,
+                        "conversation_id": draft_conversation_id
+                    }
+
         except requests.exceptions.HTTPError as e:
             error_body = ""
             try:
