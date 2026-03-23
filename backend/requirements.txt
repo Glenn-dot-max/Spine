@@ -74,3 +74,4 @@ google-auth-oauthlib>=1.0.0
 google-api-python-client>=2.0.0
 msal>=1.20.0
 requests>=2.31.0
+APScheduler==3.10.4
