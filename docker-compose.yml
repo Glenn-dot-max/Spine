@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     container_name: spine_postgres
     environment:
-      POSTGRES_DB: spine
-      POSTGRES_USER: spine
-      POSTGRES_PASSWORD: spine
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
       - spine_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U spine -d spine"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10

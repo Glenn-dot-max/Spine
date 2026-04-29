@@ -1,21 +1,28 @@
 """
 Spine CRM - FastAPI Application
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import the main API router (contains all sub-routers)
 from app.routes import api_router
 from app.api.oauth import router as oauth_router
-from app.routes import auth, prospects, products, campaigns
+from app.scheduler import start_scheduler, stop_scheduler
 
-# Create FastAPI app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_scheduler()
+    yield
+    stop_scheduler()
+
 app = FastAPI(
     title="Spine CRM API",
     description="Email automation CRM for prospect management",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS configuration
@@ -27,12 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
 # Include routers
 app.include_router(api_router)
 app.include_router(oauth_router, prefix="/api/oauth", tags=["oauth"])
-
 
 @app.get("/")
 def read_root():
@@ -42,7 +46,6 @@ def read_root():
         "version": "1.0.0",
         "docs": "/docs"
     }
-
 
 @app.get("/health")
 def health_check():

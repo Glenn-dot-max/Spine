@@ -1,21 +1,22 @@
 """
-Advanded template renderer with variable substitution.
-Supports nested variables, filters, and a safe rendering.
+Advanced template renderer with variable substitution.
+Supports nested variables, filters, and safe rendering.
 """
 import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-class AdvancesTemplateRenderer:
+
+class AdvancedTemplateRenderer:
     """
     Template renderer with support for:
     - Nested variables: {{prospect.first_name}}
     - Filters: {{prospect.name|upper}}
-    - Default values: {{prospect.first_name|default("Your Company")}}
+    - Default values: {{prospect.company_name|default:"Your Company"}}
     - Safe rendering (escapes undefined variables)
     """
     
-    # Pattern pour détecter les variables {{xxx}}
+    # Pattern to detect {{xxx}} variables
     VARIABLE_PATTERN = re.compile(r'\{\{([^}]+)\}\}')
 
     @staticmethod
@@ -28,15 +29,15 @@ class AdvancesTemplateRenderer:
             context: Dictionary with variable values
         
         Returns:
-            Redenred string
+            Rendered string
         
         Example:
-            >>> render("Hello {{prospect.first_name}}!", {"prospect": {"first_name": "John"}}})
+            >>> render("Hello {{prospect.first_name}}!", {"prospect": {"first_name": "John"}})
             "Hello John!"
         """
         def replace_variable(match):
-          var_expression = match.group(1).strip()
-          return AdvancedTemplateRenderer._resolve_variable(var_expression, context)
+            var_expression = match.group(1).strip()
+            return AdvancedTemplateRenderer._resolve_variable(var_expression, context)
 
         return AdvancedTemplateRenderer.VARIABLE_PATTERN.sub(replace_variable, template)
 
@@ -48,23 +49,23 @@ class AdvancesTemplateRenderer:
         Supports: 
         - Simple: prospect.first_name
         - With filter: prospect.name|upper
-        - With default: prospect.first_name|default("Your Company")
+        - With default: prospect.company_name|default:"Your Company"
         """
         # Check for filter
         if '|' in expression:
             var_part, filter_part = expression.split('|', 1)
             var_path = var_part.strip()
-            filters = filters.strip()
+            filter_part = filter_part.strip()
         else:
             var_path = expression.strip()
-            filters = None
+            filter_part = None
 
         # Resolve variable value
-        value = AdvancesTemplateRenderer._get_nested_value(var_path, context)
+        value = AdvancedTemplateRenderer._get_nested_value(var_path, context)
 
         # Apply filters
-        if filters:
-            value = AdvancesTemplateRenderer._apply_filters(value, filters)
+        if filter_part:
+            value = AdvancedTemplateRenderer._apply_filters(value, filter_part)
 
         return str(value) if value is not None else ""
 
@@ -74,8 +75,8 @@ class AdvancesTemplateRenderer:
         Get value from nested dictionary.
         
         Example:
-            path = "prospect.company.name"
-            context = {"prospect": {"company": {"name": "Acme"}}}
+            path = "prospect.company_name"
+            context = {"prospect": {"company_name": "Acme"}}
             returns "Acme"
         """
         keys = path.split('.')
@@ -93,7 +94,7 @@ class AdvancesTemplateRenderer:
         return value
 
     @staticmethod
-    def _apply_filters(value: Any, filters: str) -> Any:
+    def _apply_filters(value: Any, filter_expr: str) -> Any:
         """
         Apply filters to a value.
         
@@ -102,15 +103,14 @@ class AdvancesTemplateRenderer:
         - lower: Convert to lowercase
         - capitalize: Capitalize first letter
         - default:"value": Use default if empty
-        - dat_format:"%Y-%m-%d": Format datetime
         """
-        filters = filter_expr.split('|')
+        filter_list = filter_expr.split('|')
 
-        for f in filters:
+        for f in filter_list:
             f = f.strip()
 
             # Filter: upper
-            if f =='upper':
+            if f == 'upper':
                 value = str(value).upper() if value else value
 
             # Filter: lower
@@ -125,13 +125,7 @@ class AdvancesTemplateRenderer:
             elif f.startswith('default:'):
                 if not value:
                     default_value = f.split(':', 1)[1].strip('"\'')
-                    if isinstance(value, str):
-                        try:
-                            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
-                        except:
-                            pass
-                    if isinstance(value, datetime):
-                        value = value.strftime(default_value)
+                    value = default_value
                   
         return value
 
@@ -147,10 +141,10 @@ class AdvancesTemplateRenderer:
             List of variable names
 
         Example:
-            >>> extract_variables("Hello {{prospect.first_name}} from {{prospect.company.name}}!")
-            ["prospect.first_name", "prospect.company.name"]
+            >>> extract_variables("Hello {{prospect.first_name}} from {{prospect.company_name}}!")
+            ["prospect.first_name", "prospect.company_name"]
         """
-        matches = AdvancesTemplateRenderer.VARIABLE_PATTERN.findall(template)
+        matches = AdvancedTemplateRenderer.VARIABLE_PATTERN.findall(template)
         variables = []
 
         for match in matches:
@@ -168,12 +162,12 @@ class AdvancesTemplateRenderer:
         
         Args:
             template: Template string
-            required_context_keys: List of required variable paths (e.g. ["prospect.first_name"])
+            required_context_keys: List of required variable paths (e.g. ["prospect", "campaign"])
         
         Returns:
-            True if valid, False otherwise
+            Dictionary with validation results
         """
-        variables = AdvancesTemplateRenderer.extract_variables(template)
+        variables = AdvancedTemplateRenderer.extract_variables(template)
         errors = []
         missing_keys = []
 
@@ -194,4 +188,6 @@ class AdvancesTemplateRenderer:
             "errors": errors
         }
 
-advanced_renderer = AdvancesTemplateRenderer()
+
+# Create singleton instance
+advanced_renderer = AdvancedTemplateRenderer()

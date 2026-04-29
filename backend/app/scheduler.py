@@ -4,8 +4,8 @@ Handles follow-up sending and response checking.
 """
 import logging
 from datetime import datetime, timezone
-from appscheduler.schedulers.background import BackgroundScheduler
-from appscheduler.triggers.interval import IntervalTrigger
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -13,7 +13,7 @@ from app.models.campaign_contact import CampaignContact, FollowUpStatus
 from app.models.campaign import Campaign
 from app.models.prospect import Prospect
 from app.models.user import User
-from app.sevices.email.email_service import EmailService
+from app.services.email.email_service import EmailService
 from app.services.email.gmail_response_checker import check_gmail_responses
 from app.services.email.outlook_response_checker import check_outlook_responses
 
@@ -53,6 +53,8 @@ def send_due_followups_task():
         sent_count = 0
         failed_count = 0
 
+        email_service = EmailService()
+
         for contact in contacts:
             try:
                 # Get user (for owner)
@@ -91,7 +93,7 @@ def send_due_followups_task():
                 )
 
                 # Update follow-up status
-                contact.follow_up_status = FollowupStatus.SENT
+                contact.follow_up_status = FollowUpStatus.SENT
                 contact.follow_up_sent_at = datetime.now(timezone.utc)
 
                 db.commit()
@@ -104,12 +106,12 @@ def send_due_followups_task():
                 db.commit()
                 failed_count += 1
 
-            logger.info(f"✅ [SCHEDULER] Follow-ups complete: {sent_count} sent, {failed_count} failed")
+        logger.info(f"✅ [SCHEDULER] Follow-ups complete: {sent_count} sent, {failed_count} failed")
 
-            except Exception as e:
-                logger.error(f"❌ [SCHEDULER] Error in send_due_followups_task: {str(e)}")
-            finally:
-                db.close()
+    except Exception as e:
+        logger.error(f"❌ [SCHEDULER] Error in send_due_followups_task: {str(e)}")
+    finally:
+        db.close()
 
 
 def check_responses_task():

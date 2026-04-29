@@ -19,3 +19,5 @@ venv/
 
 # Local env
 backend/.env
+.env
+**/.env
