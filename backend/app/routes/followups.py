@@ -5,7 +5,7 @@ User chooses when to schedule follow-ups.
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional
 from pydantic import BaseModel
 
 from app.db import get_db
@@ -19,31 +19,59 @@ router = APIRouter(prefix="/campaigns", tags=["follow-ups"])
 
 # ================= SCHEMAS =================
 
+def get_effective_delay(contact: CampaignContact, campaign: Campaign, step: int) -> Optional[int]:
+    """
+    Retourne le délai effectif en jours pour le prochain follow-up.
+    Priorité : délai custom du contact > délai par défaut de la campagne.
+    step : email_sequence_step APRÈS envoi (1, 2, 3)
+    Retourne None si plus de follow-up à planifier (step > 3).
+    """
+    if step == 1:
+        return contact.custom_followup_delay_1 or campaign.followup_delay_1
+    elif step == 2:
+        return contact.custom_followup_delay_2 or campaign.followup_delay_2
+    elif step == 3:
+        return contact.custom_followup_delay_3 or campaign.followup_delay_3
+    else:
+        return None
+
+def schedule_next_followup(contact: CampaignContact, campaign: Campaign) -> Optional[datetime]:
+    """
+    Calcule et assigne la prochaine date de follow-up après un envoi.
+    Retourne la date planifiée ou None si séquence terminée.
+    """
+    delay = get_effective_delay(contact, campaign, contact.email_sequence_step)
+
+    if delay is None:
+        contact.next_follow_up_scheduled_at = None
+        return None
+    
+    next_date = datetime.utcnow() + timedelta(days=delay)
+    contact.next_follow_up_scheduled_at = next_date
+    return next_date
+
+# ================= SCHEMAS =================
+
 class ScheduleFollowUpRequest(BaseModel):
-    scheduled_at: datetime  # Date et heure choisies par l'utilisateur pour la relance
-
-class ScheduleFollowUpResponse(BaseModel):
-    prospect_id: int
-    prospect_name: str
-    current_step: int
     scheduled_at: datetime
-    message: str
 
+class UpdateContactDelayRequest(BaseModel):
+    custom_followup_delay_1: Optional[int] = None
+    custom_followup_delay_2: Optional[int] = None
+    custom_followup_delay_3: Optional[int] = None
 
-# ================= PLANNIFIER UN FOLLOW-UP =================
-@router.post("/{campaign_id}/contacts/{prospect_id}/schedule-followup")
-def schedule_followup(
-    campaign_id: int,
-    prospect_id: int,
-    scheduled_at: datetime = Body(..., embed=True),
+# ================= VOIR LES FOLLOW-UPS PLANIFIÉS =================
+
+@router.get("/{campaign_id}/followups/scheduled")
+def get_scheduled_followups(
+    campaign_id: int, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Schedule a follow-up email for a specific contact.
-    User chooses the exact date/time.
+    Retourne tous les follow-ups planifiés pour une campagne.
+    Inclut les délais effectifs (custom ou campagne)
     """
-    # Verify campaign
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
         Campaign.user_id == current_user.id
@@ -55,96 +83,9 @@ def schedule_followup(
             detail=f"Campaign {campaign_id} not found"
         )
     
-    # Get contact
-    contact = db.query(CampaignContact).filter(
-        CampaignContact.campaign_id == campaign_id,
-        CampaignContact.prospect_id == prospect_id
-    ).first()
-
-    if not contact:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prospect {prospect_id} not linked to campaign {campaign_id}"
-        )
-    
-    # Verify email was sent
-    if not contact.last_email_sent_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot schedule follow-up: no initial email sent yet"
-        )
-    
-    # Verify not already responded
-    if contact.status == "responded":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot schedule follow-up: prospect has already responded"
-        )
-    
-    # Get prospect for response
-    prospect = db.query(Prospect).filter(Prospect.id == prospect_id).first()
-
-    # Schedule the follow-up
-    contact.next_follow_up_scheduled_at = scheduled_at
-    db.commit()
-
-    return {
-        "prospect_id": prospect.id,
-        "prospect_name": f"{prospect.first_name} {prospect.last_name}",
-        "current_step": contact.email_sequence_step,
-        "scheduled_at": scheduled_at,
-        "message": f"Follow-up scheduled for {scheduled_at.strftime('%Y-%m-%d %H:%M:%S')}"
-    }
-    
-@router.post("/{campaign_id}/contacts/{prospect_id}/schedule-followup/suggest")
-def suggest_followup_date(
-    campaign_id: int, 
-    prospect_id: int,
-    days_from_now: int = Body(3, embed=True),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Suggest and schedule a follow-up date.
-    Quick helper to schedule +X days from now.
-    """
-    suggested_date = datetime.utcnow() + timedelta(days=days_from_now)
-
-    return schedule_followup(
-        campaign_id=campaign_id,
-        prospect_id=prospect_id,
-        scheduled_at=suggested_date,
-        db=db,
-        current_user=current_user
-    )
-
-# ================= VOIR LES FOLLOW-UPS PLANIFIÉS =================
-@router.get("/{campaign_id}/followups/scheduled")
-def get_scheduled_followups(
-    campaign_id: int, 
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) 
-):
-    """
-    Get all scheduled follow-ups for a campaign.
-    """
-    # Verify a campaign
-    campaign= db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
-
-    if not campaign:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Campaign {campaign_id} not found"
-        )
-    
-    # Get contacts with scheduled follow-ups
     contacts = db.query(CampaignContact).filter(
         CampaignContact.campaign_id == campaign_id,
         CampaignContact.next_follow_up_scheduled_at.isnot(None),
-        CampaignContact.status == "contacted"  # Only show those that have been contacted but not responded
     ).order_by(CampaignContact.next_follow_up_scheduled_at).all()
 
     scheduled = []
@@ -156,16 +97,173 @@ def get_scheduled_followups(
                 "prospect_name": f"{prospect.first_name} {prospect.last_name}",
                 "prospect_email": prospect.email,
                 "current_step": contact.email_sequence_step,
-                "last_sent": contact.last_email_sent_at.isoformat(),
+                "last_sent": contact.last_email_sent_at.isoformat() if contact.last_email_sent_at else None,
                 "scheduled_at": contact.next_follow_up_scheduled_at.isoformat(),
-                "is_due": contact.next_follow_up_scheduled_at <= datetime.utcnow()
+                "is_due": contact.next_follow_up_scheduled_at <= datetime.utcnow(),
+                "effective_delay_1": contact.custom_followup_delay_1 or campaign.followup_delay_1,
+                "effective_delay_2": contact.custom_followup_delay_2 or campaign.followup_delay_2,
+                "effective_delay_3": contact.custom_followup_delay_3 or campaign.followup_delay_3,
             })
-    
+
     return {
         "campaign_id": campaign_id,
         "campaign_name": campaign.name,
+        "scheduled_delays": {
+            "delay_1": campaign.followup_delay_1,
+            "delay_2": campaign.followup_delay_2,
+            "delay_3": campaign.followup_delay_3,
+        },
         "total_scheduled": len(scheduled),
         "scheduled_followups": scheduled
+    }
+
+# ================= PLANIFIER UN FOLLOW-UP MANUELLEMENT =================
+@router.post("/{campaign_id}/contacts/{prospect_id}/schedule-followup")
+def schedule_followup(
+    campaign_id: int, 
+    prospect_id: int,
+    scheduled_at: datetime = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Planifie manuellement un follow-up à une date précise.
+    """
+    campaign = db.query(Campaign).filter(
+        Campaign.id == campaign_id,
+        Campaign.user_id == current_user.id
+    ).first()
+
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
+    
+    contact = db.query(CampaignContact).filter(
+        CampaignContact.campaign_id == campaign_id,
+        CampaignContact.prospect_id == prospect_id
+    ).first()
+
+    if not contact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Contact for prospect {prospect_id} in campaign {campaign_id} not found")
+    
+    if not contact.last_email_sent_at:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot schedule follow-up for a contact that has not received any email yet")
+    
+    if contact.status == "responded":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot schedule follow-up for a contact that has already responded")
+    
+    prospect = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+
+    contact.next_follow_up_scheduled_at = scheduled_at
+    db.commit()
+
+    return {
+        "prospect_id": prospect.id,
+        "prospect_name": f"{prospect.first_name} {prospect.last_name}",
+        "current_step": contact.email_sequence_step,
+        "scheduled_at": scheduled_at,
+        "message": f"Follow-up scheduled for {scheduled_at.strftime('%Y-%m-%d %H:%M:%S')}"
+
+    }
+
+@router.post("/{campaign_id}/contacts/{prospect_id}/schedule-followup/suggest")
+def suggest_followup_date(
+    campaign_id: int,
+    prospect_id: int,
+    days_from_now: int = Body(None, embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Planifie le prochian follow-up automatiquement selon les délais de la campagne/contact.
+    Si days_from_now est fourni, utilise ce délai. Sinon utilise les délais configurés (custom ou campagne).
+    """
+    campaign = db.query(Campaign).filter(
+        Campaign.id == campaign_id,
+        Campaign.user_id == current_user.id
+    ).first()
+
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
+    
+    contact = db.query(CampaignContact).filter(
+        CampaignContact.campaign_id == campaign_id,
+        CampaignContact.prospect_id == prospect_id
+    ).first()
+
+    if not contact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Contact for prospect {prospect_id} in campaign {campaign_id} not found")
+    
+    if days_from_now is not None:
+        suggested_date = datetime.utcnow() + timedelta(days=days_from_now)
+    else:
+        delay = get_effective_delay(contact, campaign, contact.email_sequence_step + 1)
+        if delay is None:
+            return {
+                "message": "No more follow-ups to schedule for this contact",
+                "current_step": contact.email_sequence_step
+            }
+        suggested_date = datetime.utcnow() + timedelta(days=delay)
+
+    return schedule_followup(
+        campaign_id=campaign_id,
+        prospect_id=prospect_id,
+        scheduled_at=suggested_date,
+        db=db,
+        current_user=current_user
+    )
+
+# ================= METTRE À JOUR LES DÉLAIS DE SUIVI PERSONNALISÉS =================
+@router.put("/{campaign_id}/contacts/{prospect_id}/followup-delays")
+def update_contact_followup_delays(
+    campaign_id: int,
+    prospect_id: int,
+    delays: UpdateContactDelayRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Met à jour les délais de suivi personnalisés pour un contact.
+    L'utilisateur peut définir des délais spécifiques pour chaque étape de suivi.
+    Mettre null permet de revenir au délai de la campagne.
+    """
+    campaign = db.query(Campaign).filter(
+        Campaign.id == campaign_id,
+        Campaign.user_id == current_user.id
+    ).first()
+
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
+    
+    contact = db.query(CampaignContact).filter(
+        CampaignContact.campaign_id == campaign_id,
+        CampaignContact.prospect_id == prospect_id
+    ).first()
+
+    if not contact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Contact for prospect {prospect_id} in campaign {campaign_id} not found")
+    
+    if delays.custom_followup_delay_1 is not None:
+        contact.custom_followup_delay_1 = delays.custom_followup_delay_1
+    if delays.custom_followup_delay_2 is not None:
+        contact.custom_followup_delay_2 = delays.custom_followup_delay_2
+    if delays.custom_followup_delay_3 is not None:
+        contact.custom_followup_delay_3 = delays.custom_followup_delay_3
+
+    db.commit()
+
+    return {
+        "prospect_id": prospect_id,
+        "custom_delays": {
+            "delay_1": contact.custom_followup_delay_1,
+            "delay_2": contact.custom_followup_delay_2,
+            "delay_3": contact.custom_followup_delay_3,
+        },
+        "effective_delays": {
+            "delay_1": contact.custom_followup_delay_1 or campaign.followup_delay_1,
+            "delay_2": contact.custom_followup_delay_2 or campaign.followup_delay_2,
+            "delay_3": contact.custom_followup_delay_3 or campaign.followup_delay_3,
+        },
+        "message": "Custom follow-up delays updated successfully"
     }
 
 # ================= ENVOYER LES FOLLOW-UPS DUS =================
@@ -173,79 +271,66 @@ def get_scheduled_followups(
 def send_due_followups(
     campaign_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Send all follow-ups that are due NOW.
-    Only sends contacts where schedules_at <= now.
+    Envoie tous les follow-ups qui sont dus.
+    Après chaque envoie, planifie automatiquement le prochain follow-up selon les délais configurés (custom ou campagne).
     """
-    # Verify campaign
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
         Campaign.user_id == current_user.id
     ).first()
 
     if not campaign:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Campaign {campaign_id} not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
     
-    # Check email configured
     if not current_user.has_email_configured:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You must connect GMAIL or OUTLOOK"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User does not have email configured")
     
-    # Get contacts with due follow-ups
     now = datetime.utcnow()
     contacts = db.query(CampaignContact).filter(
         CampaignContact.campaign_id == campaign_id,
         CampaignContact.next_follow_up_scheduled_at.isnot(None),
         CampaignContact.next_follow_up_scheduled_at <= now,
-        CampaignContact.status == "contacted" 
+        CampaignContact.status == "contacted"
     ).all()
 
     if not contacts:
-        return {
-            "due_contacts": 0,
-            "sent": 0,
-            "message": "No follow-ups are due at this time"
-        }
+        return {"due_contacts": 0, "message": "No follow-ups are due at this time"}
     
-    # Send follow-ups
     email_service = EmailService(db)
     sent = 0
     failed = 0
     errors = []
+    next_followups = []
 
     for contact in contacts:
         try:
-            # Get prospect
             prospect = db.query(Prospect).filter(Prospect.id == contact.prospect_id).first()
             if not prospect:
                 failed += 1
                 continue
-            
-            # Send follow-up
-            result = email_service.send_campaign_email(
+
+            email_service.send_campaign_email(
                 campaign=campaign,
                 contact=contact,
                 prospect=prospect,
-                user=current_user,
+                user=current_user
             )
 
-            # Clear scheduled date
-            contact.next_follow_up_scheduled_at = None
+            next_date = schedule_next_followup(contact, campaign)
             sent += 1
+
+            if next_date:
+                next_followups.append({
+                    "prospect_id": prospect.id,
+                    "next_followup_at": next_date.isoformat()
+                })
 
         except Exception as e:
             failed += 1
-            errors.append({
-                "prospect_id": contact.prospect_id,
-                "error": str(e)
-            })
+            errors.append({"prospect_id": contact.prospect_id, "error": str(e)})
 
     db.commit()
 
@@ -253,11 +338,12 @@ def send_due_followups(
         "due_contacts": len(contacts),
         "sent": sent,
         "failed": failed,
-        "errors": errors if errors else None,
+        "errors": errors,
+        "next_followups_scheduled": next_followups,
         "message": f"{sent} follow-ups sent, {failed} failed"
     }
 
-# ================= ANNULER UN FOLLOW-UP PLANIFIÉ =================
+# ================= SUPPRIMER UN FOLLOW-UP PLANIFIÉ =================
 @router.post("/{campaign_id}/contacts/{prospect_id}/followup")
 def cancel_followup(
     campaign_id: int,
@@ -266,37 +352,25 @@ def cancel_followup(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Cancel a scheduled follow-up.
+    Annule un follow-up planifié en supprimant la date de suivi du contact.
     """
-    # Verify campaign
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
         Campaign.user_id == current_user.id
     ).first()
 
     if not campaign:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Campaign {campaign_id} not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
     
-    # Get contact
     contact = db.query(CampaignContact).filter(
         CampaignContact.campaign_id == campaign_id,
         CampaignContact.prospect_id == prospect_id
     ).first()
 
     if not contact:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prospect {prospect_id} not linked to campaign {campaign_id}"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Contact for prospect {prospect_id} in campaign {campaign_id} not found")
     
-    # Cancel
     contact.next_follow_up_scheduled_at = None
     db.commit()
 
-    return {
-        "prospect_id": prospect_id,
-        "message": "Follow-up cancelled"  
-    }
+    return {"prospect_id": prospect_id, "message": "Follow-up cancelled successfully"}

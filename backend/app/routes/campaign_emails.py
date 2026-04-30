@@ -252,82 +252,74 @@ def preview_email(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Preview email before sending (for testing/debugging).
+    Preview email before sending - utilise le même moteur que l'envoi réel.
     """
-    # Verify campaign
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
         Campaign.user_id == current_user.id
     ).first()
-    
     if not campaign:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Campaign {campaign_id} not found"
         )
     
-    # Get contact
     contact = db.query(CampaignContact).filter(
         CampaignContact.campaign_id == campaign_id,
         CampaignContact.prospect_id == prospect_id
     ).first()
-    
     if not contact:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prospect {prospect_id} is not linked to campaign {campaign_id}"
         )
     
-    # Get prospect
     prospect = db.query(Prospect).filter(
-        Prospect.id == prospect_id
-    ).first()
-    
+        Prospect.id == prospect_id).first()
     if not prospect:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prospect {prospect_id} not found"
         )
     
-    # Determine template
-    if not template_name:
-        email_service = EmailService(db)
-        template_name = email_service._get_template_name(contact.email_sequence_step)
-    
-    # Render template
     try:
-        html_body = email_renderer.render_campaign_email(
-            template_name=template_name,
-            prospect_first_name=prospect.first_name,
-            prospect_last_name=prospect.last_name,
-            prospect_company=prospect.company_name or "your company",
-            campaign_name=campaign.name,
-            campaign_location=campaign.location,
-            sender_name=f"{current_user.first_name} {current_user.last_name}" if current_user.first_name else "The Team",
-            distributor_name=campaign.distributor_name,
-        )
-        
-        # Generate subject
         email_service = EmailService(db)
-        subject = email_service._get_email_subject(campaign.name, contact.email_sequence_step)
+
+        t_name = template_name or email_service._get_template_name(contact.email_sequence_step)
+        template = email_service._load_template(current_user, t_name)
+        context = email_service._build_context(prospect, campaign, current_user)
+
+        if template:
+            from app.services.email.advanced_template_renderer import advanced_renderer
+            subject = advanced_renderer.render(template.subject_template, context)
+            html_body = advanced_renderer.render(template.body_template, context)
+        else:
+            subject = email_service._get_fallback_subject(campaign.name, contact.email_sequence_step)
+            html_body = email_service._get_fallback_body(
+                prospect.first_name,
+                campaign.name,
+                campaign.location or "our event",
+                current_user.first_name or "Sales",
+                current_user.last_name or "Team",
+                contact.email_sequence_step
+            )
         
         return EmailPreviewResponse(
             subject=subject,
             html_body=html_body,
             to_email=prospect.email,
             prospect_name=f"{prospect.first_name} {prospect.last_name}",
-            template_used=template_name,
+            template_used=t_name,
             variables_used={
                 "first_name": prospect.first_name,
                 "last_name": prospect.last_name,
-                "company_name": prospect.company_name,
                 "campaign_name": campaign.name,
                 "campaign_location": campaign.location,
             }
         )
-        
+    
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to preview email: {str(e)}"
+            detail=f"Failed to render email preview: {str(e)}"
         )

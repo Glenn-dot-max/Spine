@@ -242,7 +242,7 @@ class EmailService:
                 raise Exception("No email provider configured")
             
         # Step 2: Load template
-        template_name = template_override or self._get_template_name(contact.sequence_step)
+        template_name = template_override or self._get_template_name(contact.email_sequence_step)
         template = self._load_template(user, template_name)
 
         # Step 3: Build context
@@ -258,7 +258,7 @@ class EmailService:
             
         else:
             # Fallback to hardcoded templates
-            subject = self._get_fallback_subject(campaign.name, contact.sequence_step, original_subject=contact.last_email_subject)
+            subject = self._get_fallback_subject(campaign.name, contact.email_sequence_step)
             html_body = self._get_fallback_body(
                 prospect.first_name,
                 campaign.name,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import api from "../services/api";
+import api from "../api/client";
 
 interface OAuthStatus {
   gmail: {
@@ -64,7 +64,7 @@ const Settings = () => {
     try {
       const response = await api.get("/oauth/gmail/connect");
       window.location.href = response.data.auth_url;
-    } catch (error) {
+    } catch {
       setMessage({ type: "error", text: "Error connecting Gmail ❌" });
     }
   };
@@ -73,14 +73,13 @@ const Settings = () => {
     try {
       const response = await api.get("/oauth/outlook/connect");
       window.location.href = response.data.auth_url;
-    } catch (error) {
+    } catch {
       setMessage({ type: "error", text: "Error connecting Outlook ❌" });
     }
   };
 
   const disconnect = async (provider: "gmail" | "outlook") => {
     if (!window.confirm(`Disconnect ${provider.toUpperCase()}?`)) return;
-
     try {
       await api.post(`/oauth/disconnect/${provider}`);
       setMessage({
@@ -88,25 +87,25 @@ const Settings = () => {
         text: `${provider.toUpperCase()} disconnected successfully! ✅`,
       });
       loadStatus();
-    } catch (error) {
-      setMessage({ type: "error", text: `Error disconnecting ❌` });
+    } catch {
+      setMessage({ type: "error", text: "Error disconnecting ❌" });
     }
   };
 
-  if (loading) {
-    return <div className="container mx-auto p-8">Loading...</div>;
-  }
+  if (loading) return <p className="text-gray-500">Loading...</p>;
 
   return (
-    <div className="container mx-auto p-8 max-w-4xl">
-      <h1 className="text-3xl font-bold mb-8">Email Settings</h1>
+    <div className="space-y-6 max-w-3xl">
+      {/* Header */}
+      <h2 className="text-2xl font-bold text-gray-800">Email Settings</h2>
 
+      {/* Message */}
       {message && (
         <div
-          className={`mb-6 p-4 rounded ${
+          className={`px-4 py-3 rounded text-sm ${
             message.type === "success"
-              ? "bg-green-100 text-green-800"
-              : "bg-red-100 text-red-800"
+              ? "bg-green-50 text-green-700"
+              : "bg-red-50 text-red-700"
           }`}
         >
           {message.text}
@@ -114,20 +113,20 @@ const Settings = () => {
       )}
 
       {/* Gmail */}
-      <div className="bg-white shadow rounded-lg p-6 mb-6">
+      <div className="bg-white shadow-sm rounded-lg p-6 border">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
+            <div className="w-12 h-12 bg-red-500 text-white rounded-full flex items-center justify-center font-bold text-lg">
               G
             </div>
             <div>
-              <h2 className="text-xl font-semibold">Gmail</h2>
+              <h3 className="text-lg font-semibold">Gmail</h3>
               {status?.gmail.connected ? (
                 <p className="text-sm text-gray-600">
                   Connected:{" "}
                   <span className="font-medium">{status.gmail.email}</span>
                   {status.default_provider === "gmail" && (
-                    <span className="m1-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                    <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
                       Default
                     </span>
                   )}
@@ -137,41 +136,39 @@ const Settings = () => {
               )}
             </div>
           </div>
-          <div>
-            {status?.gmail.connected ? (
-              <button
-                onClick={() => disconnect("gmail")}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                onClick={connectGmail}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
-              >
-                Connect Gmail
-              </button>
-            )}
-          </div>
+          {status?.gmail.connected ? (
+            <button
+              onClick={() => disconnect("gmail")}
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition text-sm"
+            >
+              Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={connectGmail}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm"
+            >
+              Connect Gmail
+            </button>
+          )}
         </div>
       </div>
 
       {/* Outlook */}
-      <div className="bg-white shadow rounded-lg p-6">
+      <div className="bg-white shadow-sm rounded-lg p-6 border">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold">
+            <div className="w-12 h-12 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-lg">
               O
             </div>
             <div>
-              <h2 className="text-xl font-semibold">Outlook</h2>
+              <h3 className="text-lg font-semibold">Outlook</h3>
               {status?.outlook.connected ? (
                 <p className="text-sm text-gray-600">
                   Connected:{" "}
                   <span className="font-medium">{status.outlook.email}</span>
                   {status.default_provider === "outlook" && (
-                    <span className="m1-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                    <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
                       Default
                     </span>
                   )}
@@ -181,30 +178,29 @@ const Settings = () => {
               )}
             </div>
           </div>
-          <div>
-            {status?.outlook.connected ? (
-              <button
-                onClick={() => disconnect("outlook")}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                onClick={connectOutlook}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-              >
-                Connect Outlook
-              </button>
-            )}
-          </div>
+          {status?.outlook.connected ? (
+            <button
+              onClick={() => disconnect("outlook")}
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition text-sm"
+            >
+              Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={connectOutlook}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm"
+            >
+              Connect Outlook
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Warning */}
       {!status?.gmail.connected && !status?.outlook.connected && (
-        <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded">
-          <p className="text-yellow-800">
-            ⚠️ You must connext at least one email account to send emails.
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded">
+          <p className="text-yellow-800 text-sm">
+            ⚠️ You must connect at least one email account to send emails.
           </p>
         </div>
       )}

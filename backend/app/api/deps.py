@@ -3,7 +3,7 @@ Dependencies for FastAPI routes.
 """
 from typing import Generator
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,8 @@ from app.db import SessionLocal
 from app.models.user import User
 from app.services.auth import SECRET_KEY, ALGORITHM
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+# ✅ HTTPBearer → Swagger affiche un champ "token" propre
+http_bearer = HTTPBearer()
 
 def get_db() -> Generator:
     """Get database session."""
@@ -22,7 +23,7 @@ def get_db() -> Generator:
         db.close()
 
 def get_current_user(
-        token: str = Depends(oauth2_scheme),
+        credentials: HTTPAuthorizationCredentials = Depends(http_bearer),
         db: Session = Depends(get_db)
 ) -> User:
     """Get current authenticated user from JWT token."""
@@ -33,6 +34,7 @@ def get_current_user(
     )
 
     try:
+        token = credentials.credentials  
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:

@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from app.db import get_db
 from app.models.user import User
-from app.models.campaign import Campaign, TradeShowStatus
+from app.models.campaign import Campaign, CampaignContact, TradeShowStatus
 from app.schemas.campaign import (
     CampaignCreate,
     CampaignUpdate,
@@ -27,17 +27,7 @@ def list_campaigns(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    List all campaigns (trade shows) for the current user.
 
-    Query params:
-    - skip: number of records to skip (for pagination)
-    - limit: max number of results (max 100)
-    - status_filter: filter by status (upcoming, active, completed, archived)
-
-    Returns:
-    - List of campaigns with basic info
-    """
     query = db.query(Campaign).filter(Campaign.user_id == current_user.id)
 
     # Optional status filter
@@ -64,23 +54,7 @@ def create_campaign(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Create a new campaign (trade show).
 
-    Body:
-    {
-        "name": "Show Chefs LA 2026",
-        "event_date": "2026-01-15",
-        "end_date": "2026-01-20",
-        "location": "Los Angeles Convention Center",
-        "distributor_name": "US Foods",
-        "description": "Notes about the show",
-        "status": "upcoming"
-    }
-
-    Returns:
-    - Created campaign with its ID
-    """
     # Create the campaign object
     new_campaign = Campaign(
         user_id=current_user.id,
@@ -90,7 +64,10 @@ def create_campaign(
         location=campaign_data.location,
         distributor_name=campaign_data.distributor_name,
         description=campaign_data.description,
-        status=campaign_data.status or TradeShowStatus.UPCOMING
+        status=campaign_data.status or TradeShowStatus.UPCOMING,
+        followup_delay_1=campaign_data.followup_delay_1 or 7,
+        followup_delay_2=campaign_data.followup_delay_2 or 14,
+        followup_delay_3=campaign_data.followup_delay_3 or 21,
     )
 
     db.add(new_campaign)
@@ -105,15 +82,7 @@ def get_campaign(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Get details of a specific campaign by ID.
 
-    Path params:
-    - campaign_id: ID of the campaign to retrieve
-
-    Returns:
-    - Campaign details
-    """
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
         Campaign.user_id == current_user.id
@@ -131,23 +100,6 @@ def update_campaign(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Update an existing campaign.
-
-    Peth params:
-    - campaign_id: Campaign ID
-
-    Body (all fiels optional):
-   {
-        "name":"New Name",
-        "location":"New Location",
-        "status":"active"
-        ...
-   } 
-
-   Returns:
-   - Updated campaign details
-    """
 
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
@@ -162,13 +114,11 @@ def update_campaign(
     
     # Update only provided fields
     update_data = campaign_data.model_dump(exclude_unset=True)
-
     for field, value in update_data.items():
         setattr(campaign, field, value)
     
     db.commit()
     db.refresh(campaign)
-
     return campaign
 
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -177,15 +127,7 @@ def delete_campaign(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Delete a campaign by ID.
 
-    Path params:
-    - campaign_id: ID of the campaign to delete
-
-    Returns:
-    - 204 No Content on success
-    """
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
         Campaign.user_id == current_user.id
@@ -196,8 +138,7 @@ def delete_campaign(
 
     db.delete(campaign)
     db.commit()
-
-    return None  # 204 No Content
+    return None  
   
 
 # ==================== CONTACTS MANAGEMENT =====================
@@ -208,16 +149,8 @@ def list_campaign_contacts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    List all contacts (prospects) linked to campaign.
-    
-    Path params:
-    - campaign_id: ID of the campaign
+    from app.models.prospect import Prospect
 
-    Returns:
-    - List of contacts with prospect details, status, and email sequence info
-    """
-    # Verify campaign exists and belongs to user
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
         Campaign.user_id == current_user.id
@@ -225,16 +158,11 @@ def list_campaign_contacts(
 
     if not campaign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
-    
-    # get all contacts with prospect data
-    from app.models.campaign import CampaignContact
-    from app.models.prospect import Prospect
 
     contacts = db.query(CampaignContact).filter(
         CampaignContact.campaign_id == campaign_id
     ).all()
 
-    # Build response with prospect details
     result = []
     for contact in contacts:
         prospect = db.query(Prospect).filter(Prospect.id == contact.prospect_id).first()
@@ -251,6 +179,13 @@ def list_campaign_contacts(
                 "notes": contact.notes,
                 "email_sequence_step": contact.email_sequence_step,
                 "last_email_sent_at": contact.last_email_sent_at,
+                "next_follow_up_scheduled_at": contact.next_follow_up_scheduled_at,
+                "custom_followup_delay_1": contact.custom_followup_delay_1,
+                "custom_followup_delay_2": contact.custom_followup_delay_2,
+                "custom_followup_delay_3": contact.custom_followup_delay_3,
+                "effective_delay_1": contact.custom_followup_delay_1 or campaign.followup_delay_1,
+                "effective_delay_2": contact.custom_followup_delay_2 or campaign.followup_delay_2,
+                "effective_delay_3": contact.custom_followup_delay_3 or campaign.followup_delay_3,
                 "added_at": contact.added_at
             })
     return result
@@ -264,20 +199,7 @@ def add_contact_to_campaign(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Add a contact (prospect) to a campaign.
 
-    Path params:
-    - campaign_id: ID of the campaign
-
-    Query params:
-    - prospect_id: ID of the prospect to add
-    - notes: optional notes about this contact in the campaign
-
-    Returns:
-    - 201 Created on success
-    """
-    from app.models.campaign import CampaignContact
     from app.models.prospect import Prospect
 
     # Verify campaign exists and belongs to user
@@ -337,7 +259,6 @@ def add_campaign_contacts_bulk(
     - Summary of added/skipped contacts
 
     """
-    from app.models.campaign import CampaignContact
     from app.models.prospect import Prospect
 
     # Verify campaign exists and belongs to user
@@ -401,6 +322,9 @@ def update_campaign_contact(
     status_update: Optional[str] = None,
     notes: Optional[str] = None,
     email_sequence_step: Optional[int] = None,
+    custom_followup_delay_1: Optional[int] = None,
+    custom_followup_delay_2: Optional[int] = None,
+    custom_followup_delay_3: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -419,7 +343,6 @@ def update_campaign_contact(
     Returns:
     - Updated contact details
     """
-    from app.models.campaign import CampaignContact
 
     # Verify campaign exists and belongs to user
     campaign = db.query(Campaign).filter(
@@ -449,6 +372,13 @@ def update_campaign_contact(
     if email_sequence_step is not None:
         contact.email_sequence_step = email_sequence_step
 
+    if custom_followup_delay_1 is not None:
+        contact.custom_followup_delay_1 = custom_followup_delay_1
+    if custom_followup_delay_2 is not None:
+        contact.custom_followup_delay_2 = custom_followup_delay_2
+    if custom_followup_delay_3 is not None:
+        contact.custom_followup_delay_3 = custom_followup_delay_3
+
     db.commit()
     db.refresh(contact)
 
@@ -457,7 +387,13 @@ def update_campaign_contact(
         "prospect_id": prospect_id,
         "status": contact.status,
         "notes": contact.notes,
-        "email_sequence_step": contact.email_sequence_step
+        "email_sequence_step": contact.email_sequence_step,
+        "custom_followup_delay_1": contact.custom_followup_delay_1,
+        "custom_followup_delay_2": contact.custom_followup_delay_2,
+        "custom_followup_delay_3": contact.custom_followup_delay_3,
+        "effective_delay_1": contact.custom_followup_delay_1 or campaign.followup_delay_1,
+        "effective_delay_2": contact.custom_followup_delay_2 or campaign.followup_delay_2,
+        "effective_delay_3": contact.custom_followup_delay_3 or campaign.followup_delay_3,
     }
 
 @router.delete("/{campaign_id}/contacts/{prospect_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -477,7 +413,6 @@ def remove_contact_from_campaign(
     Returns:
     - 204 No Content on success
     """
-    from app.models.campaign import CampaignContact
 
     # Verify campaign exists and belongs to user
     campaign = db.query(Campaign).filter(
@@ -500,7 +435,7 @@ def remove_contact_from_campaign(
     db.delete(contact)
     db.commit()
 
-    return None  # 204 No Content
+    return None 
 
 # ==================== PRODUCTS MANAGEMENT =====================
 @router.get("/{campaign_id}/products", response_model=List[dict])
@@ -518,6 +453,10 @@ def list_campaign_products(
     Returns:
     - List of products with details
     """
+
+    from app.models.campaign import CampaignProduct
+    from app.models.product import Product
+
     # Verify campaign exists and belongs to user
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
@@ -527,10 +466,6 @@ def list_campaign_products(
     if not campaign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
     
-    # get all linked products
-    from app.models.campaign import CampaignProduct
-    from app.models.product import Product
-
     campaign_products = db.query(CampaignProduct).filter(
         CampaignProduct.campaign_id == campaign_id
     ).all()
@@ -729,7 +664,7 @@ def remove_product_from_campaign(
     db.delete(campaign_product)
     db.commit()
 
-    return None  # 204 No Content
+    return None
 
 # ==================== CAMPAIGN STATISTICS =====================
 @router.get("/{campaign_id}/stats")
@@ -748,7 +683,6 @@ def get_campaign_stats(
     - Statistics about the campaign
     """
     from app.models.campaign import CampaignContact, CampaignProduct
-    from sqlalchemy import func
 
     # Verify campaign exists and belongs to user
     campaign = db.query(Campaign).filter(
@@ -769,8 +703,8 @@ def get_campaign_stats(
     total_contacts = len(contacts)
 
     for contact in contacts:
-        status = contact.status or "pending"
-        status_counts[status] = status_counts.get(status, 0) + 1
+        s = contact.status or "pending"
+        status_counts[s] = status_counts.get(s, 0) + 1
 
     # Email sequence stats
     total_emails_sent = sum(c.email_sequence_step for c in contacts if c.email_sequence_step)
