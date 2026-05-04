@@ -23,7 +23,7 @@ const Settings = () => {
 
   const loadStatus = async () => {
     try {
-      const response = await api.get("/oauth/status");
+      const response = await api.get("/api/oauth/status");
       setStatus(response.data);
     } catch (error) {
       console.error("Failed to load OAuth status:", error);
@@ -62,7 +62,7 @@ const Settings = () => {
 
   const connectGmail = async () => {
     try {
-      const response = await api.get("/oauth/gmail/connect");
+      const response = await api.get("/api/oauth/gmail/connect");
       window.location.href = response.data.auth_url;
     } catch {
       setMessage({ type: "error", text: "Error connecting Gmail ❌" });
@@ -71,7 +71,7 @@ const Settings = () => {
 
   const connectOutlook = async () => {
     try {
-      const response = await api.get("/oauth/outlook/connect");
+      const response = await api.get("/api/oauth/outlook/connect");
       window.location.href = response.data.auth_url;
     } catch {
       setMessage({ type: "error", text: "Error connecting Outlook ❌" });
@@ -81,7 +81,7 @@ const Settings = () => {
   const disconnect = async (provider: "gmail" | "outlook") => {
     if (!window.confirm(`Disconnect ${provider.toUpperCase()}?`)) return;
     try {
-      await api.post(`/oauth/disconnect/${provider}`);
+      await api.post(`/api/oauth/disconnect/${provider}`);
       setMessage({
         type: "success",
         text: `${provider.toUpperCase()} disconnected successfully! ✅`,

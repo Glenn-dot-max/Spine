@@ -41,22 +41,20 @@ export const addContactToCampaign = async (
   campaignId: number,
   prospectId: number,
 ): Promise<void> => {
-  await api.post(`/api/campaigns/${campaignId}/contacts/`, {
-    prospect_id: prospectId,
-  });
+  await api.post(
+    `/api/campaigns/${campaignId}/contacts?prospect_id=${prospectId}`,
+  );
 };
 
 export const sendInitialEmails = async (campaignId: number): Promise<void> => {
   await api.post(`/api/campaigns/${campaignId}/emails/send-initial`);
 };
 
-export const getScheduleFollowups = async (campaignId: number) => {
-  const res = await api.get(
-    `/api/followups/scheduled?campaign_id=${campaignId}`,
-  );
+export const getScheduledFollowups = async (campaignId: number) => {
+  const res = await api.get(`/api/campaigns/${campaignId}/followups/scheduled`);
   return res.data;
 };
 
-export const sendDueFollowups = async (): Promise<void> => {
-  await api.post("/api/followups/send-due");
+export const sendDueFollowups = async (campaignId: number): Promise<void> => {
+  await api.post(`/api/campaigns/${campaignId}/followups/send-due`);
 };

@@ -37,12 +37,17 @@ export interface Prospect {
 
 export interface CampaignContact {
   prospect_id: number;
-  prospect_name: string;
-  prospect_email: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number?: string;
+  company_name?: string;
+  position?: string;
   status: string;
   email_sequence_step: number;
   last_email_sent_at?: string;
-  next_followup_at?: string;
+  next_followup_scheduled_at?: string;
+  notes?: string;
 }
 
 export interface Product {

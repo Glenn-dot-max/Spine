@@ -5,7 +5,7 @@ import {
   getCampaignContacts,
   addContactToCampaign,
   sendInitialEmails,
-  getScheduleFollowups,
+  getScheduledFollowups,
   sendDueFollowups,
 } from "../api/campaigns";
 import { getProspects } from "../api/prospects";
@@ -19,7 +19,7 @@ function CampaignDetail() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [contacts, setContacts] = useState<CampaignContact[]>([]);
   const [prospects, setProspects] = useState<Prospect[]>([]);
-  const [followups, setFollowups] = useState<any[]>([]);
+  const [followups, setFollowups] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProspectId, setSelectedProspectId] = useState<number | "">("");
   const [sendingAll, setSendingAll] = useState(false);
@@ -34,16 +34,23 @@ function CampaignDetail() {
 
   const fetchAll = async () => {
     try {
-      const [camp, ctcts, prosps, fups] = await Promise.all([
+      const [camp, ctcts, prosps] = await Promise.all([
         getCampaign(campaignId),
         getCampaignContacts(campaignId),
         getProspects(),
-        getScheduleFollowups(campaignId),
       ]);
       setCampaign(camp);
       setContacts(ctcts);
       setProspects(prosps);
-      setFollowups(fups);
+
+      try {
+        const fups = await getScheduledFollowups(campaignId);
+        setFollowups(
+          Array.isArray(fups) ? fups : (fups.scheduled_followups ?? []),
+        );
+      } catch {
+        setFollowups([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -89,7 +96,7 @@ function CampaignDetail() {
 
   const handleSendDueFollowups = async () => {
     try {
-      await sendDueFollowups();
+      await sendDueFollowups(campaignId);
       showMessage("success", "Due follow-ups sent");
       fetchAll();
     } catch {
@@ -205,8 +212,10 @@ function CampaignDetail() {
             <tbody>
               {contacts.map((c) => (
                 <tr key={c.prospect_id} className="border-b hover:bg-gray-50">
-                  <td className="py-2 font-medium">{c.prospect_name}</td>
-                  <td className="py-2 text-gray-500">{c.prospect_email}</td>
+                  <td className="py-2 font-medium">
+                    {c.first_name} {c.last_name}
+                  </td>
+                  <td className="py-2 text-gray-500">{c.email}</td>
                   <td className="py-2">
                     <ContactStatusBadge status={c.status} />
                   </td>
@@ -251,7 +260,9 @@ function CampaignDetail() {
             <tbody>
               {followups.map((f, i) => (
                 <tr key={i} className="border-b hover:bg-gray-50">
-                  <td className="py-2 font-medium">{f.prospect_name}</td>
+                  <td className="py-2 font-medium">
+                    {f.first_name} {f.last_name}
+                  </td>
                   <td className="py-2 text-center">{f.current_step}</td>
                   <td className="py-2 text-gray-500">
                     {new Date(f.scheduled_at).toLocaleDateString()}

@@ -33,7 +33,13 @@ function Campaigns() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    await createCampaign(form);
+    await createCampaign({
+      ...form,
+      end_date: form.end_date || undefined,
+      location: form.location || undefined,
+      distributor_name: form.distributor_name || undefined,
+      description: form.description || undefined,
+    });
     setShowForm(false);
     setForm({
       name: "",
