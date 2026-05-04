@@ -11,6 +11,7 @@ import {
 import { getProspects } from "../api/prospects";
 import api from "../api/client";
 import type { Campaign, CampaignContact, Prospect } from "../types";
+import EmailPreviewModal from "../components/EmailPreviewModal";
 
 function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
@@ -26,6 +27,10 @@ function CampaignDetail() {
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
+  } | null>(null);
+  const [previewingContact, setPreviewingContact] = useState<{
+    id: number;
+    name: string;
   } | null>(null);
 
   useEffect(() => {
@@ -232,6 +237,17 @@ function CampaignDetail() {
                     >
                       Send Email
                     </button>
+                    <button
+                      onClick={() =>
+                        setPreviewingContact({
+                          id: c.prospect_id,
+                          name: `${c.first_name} ${c.last_name}`,
+                        })
+                      }
+                      className="text-xs bg-gray-50 text-gray-600 px-2 py-1 rounded hover:bg-gray-100"
+                    >
+                      👁 Preview
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -261,7 +277,7 @@ function CampaignDetail() {
               {followups.map((f, i) => (
                 <tr key={i} className="border-b hover:bg-gray-50">
                   <td className="py-2 font-medium">
-                    {f.first_name} {f.last_name}
+                    {String(f.prospect_name)}
                   </td>
                   <td className="py-2 text-center">{f.current_step}</td>
                   <td className="py-2 text-gray-500">
@@ -278,6 +294,16 @@ function CampaignDetail() {
           </table>
         )}
       </div>
+
+      {/* Email Preview Modal */}
+      {previewingContact && (
+        <EmailPreviewModal
+          campaignId={campaignId}
+          prospectId={previewingContact.id}
+          prospectName={previewingContact.name}
+          onClose={() => setPreviewingContact(null)}
+        />
+      )}
     </div>
   );
 }

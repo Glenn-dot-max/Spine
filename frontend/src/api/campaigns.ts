@@ -58,3 +58,21 @@ export const getScheduledFollowups = async (campaignId: number) => {
 export const sendDueFollowups = async (campaignId: number): Promise<void> => {
   await api.post(`/api/campaigns/${campaignId}/followups/send-due`);
 };
+
+export const previewEmail = async (
+  campaignId: number,
+  prospectId: number,
+  step?: number,
+): Promise<{
+  subject: string;
+  html_body: string;
+  to_email: string;
+  prospect_name: string;
+  template_used: string;
+}> => {
+  const params = step !== undefined ? `?step=${step}` : "";
+  const res = await api.get(
+    `/api/campaigns/${campaignId}/contacts/${prospectId}/emails/preview${params}`,
+  );
+  return res.data;
+};
