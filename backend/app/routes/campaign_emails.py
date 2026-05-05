@@ -248,6 +248,7 @@ def preview_email(
     campaign_id: int,
     prospect_id: int,
     template_name: Optional[str] = None,
+    step: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -285,7 +286,9 @@ def preview_email(
     try:
         email_service = EmailService(db)
 
-        t_name = template_name or email_service._get_template_name(contact.email_sequence_step)
+        effective_step = step if step is not None else contact.email_sequence_step
+
+        t_name = template_name or email_service._get_template_name(effective_step)
         template = email_service._load_template(current_user, t_name)
         context = email_service._build_context(prospect, campaign, current_user)
 
@@ -294,14 +297,14 @@ def preview_email(
             subject = advanced_renderer.render(template.subject_template, context)
             html_body = advanced_renderer.render(template.body_template, context)
         else:
-            subject = email_service._get_fallback_subject(campaign.name, contact.email_sequence_step)
+            subject = email_service._get_fallback_subject(campaign.name, effective_step)
             html_body = email_service._get_fallback_body(
                 prospect.first_name,
                 campaign.name,
                 campaign.location or "our event",
                 current_user.first_name or "Sales",
                 current_user.last_name or "Team",
-                contact.email_sequence_step
+                effective_step
             )
         
         return EmailPreviewResponse(
