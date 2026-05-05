@@ -16,6 +16,9 @@ function Campaigns() {
     location: "",
     distributor_name: "",
     description: "",
+    followup_delay_1: 7,
+    followup_delay_2: 14,
+    followup_delay_3: 21,
   });
 
   useEffect(() => {
@@ -48,6 +51,9 @@ function Campaigns() {
       location: "",
       distributor_name: "",
       description: "",
+      followup_delay_1: 7,
+      followup_delay_2: 14,
+      followup_delay_3: 21,
     });
     fetchCampaigns();
   };
@@ -149,6 +155,33 @@ function Campaigns() {
                 }
                 className="w-full border rounded px-3 py-2 text-sm"
               />
+            </div>
+
+            {/* Follow-up delays */}
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Follow-up Delays (days)
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                {[1, 2, 3].map((n) => (
+                  <div key={n}>
+                    <label className="block text-sm text-gray-500 mb-1">
+                      Follow-up {n}
+                    </label>
+                    <input
+                      type="number"
+                      value={form[`followup_delay_${n}` as keyof typeof form]}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          [`followup_delay_${n}`]: Number(e.target.value),
+                        })
+                      }
+                      className="w-full border rounded px-3 py-2 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="col-span-2 flex gap-2 justify-end">
               <button

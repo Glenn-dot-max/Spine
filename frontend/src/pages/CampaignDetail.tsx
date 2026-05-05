@@ -150,17 +150,54 @@ function CampaignDetail() {
       <div className="flex gap-3">
         <button
           onClick={handleSendInitial}
-          disabled={sendingAll}
+          disabled={campaign.status !== "upcoming"}
           className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
         >
           {sendingAll ? "Sending..." : "📨 Send Initial Emails"}
         </button>
-        <button
-          onClick={handleSendDueFollowups}
-          className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700"
-        >
-          🔁 Send Due Follow-ups
-        </button>
+      </div>
+
+      {/* Campaign Info */}
+      <div className="bg-white border rounded-lg p-5 shadow-sm">
+        <h3 className="font-semibold text-gray-800 mb-4">Campaign Info</h3>
+        <div className="grid grid-cols-2 gap-3 text-sm text-gray-600 mb-4">
+          <div>
+            <span className="text-gray-400">📍 Location</span>
+            <p className="font-medium">{campaign.location || "—"}</p>
+          </div>
+          <div>
+            <span className="text-gray-400">🏢 Distributor</span>
+            <p className="font-medium">{campaign.distributor_name || "—"}</p>
+          </div>
+          <div>
+            <span className="text-gray-400">📅 Start Date</span>
+            <p className="font-medium">{campaign.event_date}</p>
+          </div>
+          <div>
+            <span className="text-gray-400">📅 End Date</span>
+            <p className="font-medium">{campaign.end_date || "—"}</p>
+          </div>
+          <div className="col-span-2">
+            <span className="text-gray-400">📝 Description</span>
+            <p className="font-medium">{campaign.description || "—"}</p>
+          </div>
+        </div>
+        <div className="border-t pt-3">
+          <p className="text-xs text-gray-400 mb-2 font-medium">
+            Follow-up delays
+          </p>
+          <div className="flex gap-3">
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+              🔁 Followup 1 = D+{campaign.followup_delay_1}
+            </span>
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+              🔁 Followup 2 = D+{campaign.followup_delay_2}
+            </span>
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+              🔁 Followup 3 = D+{campaign.followup_delay_3}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Add Contact */}
@@ -206,34 +243,46 @@ function CampaignDetail() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500 border-b">
-                <th className="pb-2">Name</th>
-                <th className="pb-2">Email</th>
-                <th className="pb-2">Status</th>
-                <th className="pb-2">Step</th>
-                <th className="pb-2">Last Sent</th>
-                <th className="pb-2">Action</th>
+                <th className="pb-2 text-center">Name</th>
+                <th className="pb-2 text-center">Email</th>
+                <th className="pb-2 text-center">Status</th>
+                <th className="pb-2 text-center">Next Step</th>
+                <th className="pb-2 text-center">Last Sent</th>
+                <th className="pb-2 text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {contacts.map((c) => (
                 <tr key={c.prospect_id} className="border-b hover:bg-gray-50">
-                  <td className="py-2 font-medium">
+                  <td className="py-2 font-medium text-center">
                     {c.first_name} {c.last_name}
                   </td>
-                  <td className="py-2 text-gray-500">{c.email}</td>
-                  <td className="py-2">
+                  <td className="py-2 text-gray-500 text-center">{c.email}</td>
+                  <td className="py-2 text-center">
                     <ContactStatusBadge status={c.status} />
                   </td>
-                  <td className="py-2 text-center">{c.email_sequence_step}</td>
-                  <td className="py-2 text-gray-400 text-xs">
+                  <td className="py-2 text-center">
+                    {[
+                      "Initial",
+                      "Follow-up 1",
+                      "Follow-up 2",
+                      "Follow-up 3",
+                      "✅ Done",
+                    ][c.email_sequence_step] ?? "-"}
+                  </td>
+                  <td className="py-2 text-gray-400 text-xs text-center">
                     {c.last_email_sent_at
                       ? new Date(c.last_email_sent_at).toLocaleDateString()
                       : "—"}
                   </td>
-                  <td className="py-2">
+                  <td className="py-2 text-center">
                     <button
                       onClick={() => handleSendSingle(c.prospect_id)}
-                      className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100"
+                      disabled={
+                        c.email_sequence_step >= 4 ||
+                        campaign.status === "completed"
+                      }
+                      className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Send Email
                     </button>
@@ -261,31 +310,38 @@ function CampaignDetail() {
         <h3 className="font-semibold text-gray-800 mb-3">
           Scheduled Follow-ups ({followups.length})
         </h3>
+
         {followups.length === 0 ? (
           <p className="text-sm text-gray-400">No follow-ups scheduled</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500 border-b">
-                <th className="pb-2">Prospect</th>
-                <th className="pb-2">Step</th>
-                <th className="pb-2">Scheduled At</th>
-                <th className="pb-2">Status</th>
+                <th className="pb-2 text-center">Prospect</th>
+                <th className="pb-2 text-center">Next Step</th>
+                <th className="pb-2 text-center">Scheduled At</th>
+                <th className="pb-2 text-center">Status</th>
               </tr>
             </thead>
             <tbody>
               {followups.map((f, i) => (
                 <tr key={i} className="border-b hover:bg-gray-50">
-                  <td className="py-2 font-medium">
+                  <td className="py-2 font-medium text-center">
                     {String(f.prospect_name)}
                   </td>
-                  <td className="py-2 text-center">{f.current_step}</td>
-                  <td className="py-2 text-gray-500">
+                  <td className="py-2 text-center">
+                    {["Initial", "Follow-up 1", "Follow-up 2", "Follow-up 3"][
+                      Number(f.current_step)
+                    ] ?? "-"}
+                  </td>
+                  <td className="py-2 text-gray-500 text-center">
                     {new Date(f.scheduled_at).toLocaleDateString()}
                   </td>
-                  <td className="py-2">
-                    <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full">
-                      {f.status}
+                  <td className="py-2 text-center">
+                    <span className="text-sm text-gray-600">
+                      {String(f.status) === "pending"
+                        ? "⏳ Pending"
+                        : String(f.status)}
                     </span>
                   </td>
                 </tr>
@@ -324,17 +380,15 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function ContactStatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    pending: "bg-gray-100 text-gray-600",
-    contacted: "bg-blue-100 text-blue-700",
-    replied: "bg-green-100 text-green-700",
-    bounced: "bg-red-100 text-red-700",
+  const labels: Record<string, string> = {
+    pending: "⏳ Pending",
+    contacted: "📧 Contacted",
+    replied: "✅ Replied",
+    bounced: "❌ Bounced",
   };
   return (
-    <span
-      className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] ?? "bg-gray-100"}`}
-    >
-      {status}
+    <span className="text-sm text-gray-600 text-center block">
+      {labels[status] ?? status}
     </span>
   );
 }

@@ -314,6 +314,20 @@ class EmailService:
         # Update status to 'contacted' if first email
         if contact.email_sequence_step == 1 and contact.status == "pending":
             contact.status = "contacted"
+        
+        if campaign.status.value == "upcoming":
+            from app.models.campaign import TradeShowStatus
+            campaign.status = TradeShowStatus.ACTIVE
+        
+        from app.routes.followups import schedule_next_followup
+        schedule_next_followup(contact, campaign)
+
+        from app.models.campaign import TradeShowStatus
+        all_contacts = self.db.query(CampaignContact).filter(
+            CampaignContact.campaign_id == campaign.id
+        ).all()
+        if all(c.email_sequence_step >= 4 for c in all_contacts):
+            campaign.status = TradeShowStatus.COMPLETED
 
         self.db.commit()
 
