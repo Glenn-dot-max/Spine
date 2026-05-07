@@ -8,6 +8,7 @@ function Campaigns() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [tab, setTab] = useState<"active" | "completed">("active");
 
   const [form, setForm] = useState({
     name: "",
@@ -63,6 +64,10 @@ function Campaigns() {
     await deleteCampaign(id);
     fetchCampaigns();
   };
+
+  const activeCampaigns = campaigns.filter((c) => c.status !== "completed");
+  const completedCampaigns = campaigns.filter((c) => c.status === "completed");
+  const displayed = tab === "active" ? activeCampaigns : completedCampaigns;
 
   if (loading) return <p className="text-gray-500">Loading...</p>;
 
@@ -202,12 +207,28 @@ function Campaigns() {
         </div>
       )}
 
+      {/* Tabs */}
+      <div className="flex gap-2 border-b">
+        <button
+          onClick={() => setTab("active")}
+          className={`px-4 py-2 text-sm font-medium ${tab === "active" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+        >
+          Active ({activeCampaigns.length})
+        </button>
+        <button
+          onClick={() => setTab("completed")}
+          className={`px-4 py-2 text-sm font-medium ${tab === "completed" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+        >
+          Completed ({completedCampaigns.length})
+        </button>
+      </div>
+
       {/* Campaign list */}
-      {campaigns.length === 0 ? (
+      {displayed.length === 0 ? (
         <p className="text-gray-400 text-sm">No campaigns yet</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {campaigns.map((c) => (
+          {displayed.map((c) => (
             <div
               key={c.id}
               className="bg-white border rounded-lg p-5 shadow-sm hover:shadow-md transition"

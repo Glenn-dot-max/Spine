@@ -46,6 +46,16 @@ def list_campaigns(
     query = query.order_by(Campaign.event_date.desc())
 
     campaigns = query.offset(skip).limit(limit).all()
+
+    for campaign in campaigns:
+        campaign.contact_count = db.query(CampaignContact).filter(
+            CampaignContact.campaign_id == campaign.id
+        ).count()
+        from app.models.campaign import CampaignProduct
+        campaign.product_count = db.query(CampaignProduct).filter(
+            CampaignProduct.campaign_id == campaign.id
+        ).count()
+        
     return campaigns
 
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
