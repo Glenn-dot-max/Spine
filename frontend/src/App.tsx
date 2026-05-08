@@ -11,6 +11,7 @@ import Campaigns from "./pages/Campaigns";
 import CampaignDetail from "./pages/CampaignDetail";
 import Dashboard from "./pages/Dashboard";
 import Navbar from "./components/Navbar";
+import Templates from "./pages/Templates";
 import type React from "react";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -39,6 +40,7 @@ function App() {
                     <Route path="/campaigns/:id" element={<CampaignDetail />} />
                     <Route path="/prospects" element={<Prospects />} />
                     <Route path="/settings" element={<Settings />} />
+                    <Route path="/templates" element={<Templates />} />
                   </Routes>
                 </div>
               </div>

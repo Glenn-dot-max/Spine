@@ -40,6 +40,12 @@ function Navbar() {
                 Prospects
               </Link>
               <Link
+                to="/templates"
+                className={`px-2 py-2 ${isActive("/templates")}`}
+              >
+                📧 Templates
+              </Link>
+              <Link
                 to="/settings"
                 className={`px-2 py-2 ${isActive("/settings")}`}
               >
