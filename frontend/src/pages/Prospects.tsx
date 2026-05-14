@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { getProspects, createProspect, deleteProspect } from "../api/prospects";
+import {
+  getProspects,
+  createProspect,
+  deleteProspect,
+  getProspectCampaigns,
+} from "../api/prospects";
 import type { Prospect } from "../types";
 
 function Prospects() {
@@ -47,8 +52,16 @@ function Prospects() {
     fetchProspects();
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Delete this prospect?")) return;
+  const handleDelete = async (id: number, name: string) => {
+    const campaigns = await getProspectCampaigns(id);
+
+    let message = `Delete ${name}?`;
+    if (campaigns.length > 0) {
+      const names = campaigns.map((c) => c.name).join(", ");
+      message = `⚠️ ${name} is linked to ${campaigns.length} campaign(s) : ${names}. \n\nDeleting will also remove them from these campaigns. Continue?`;
+    }
+
+    if (!confirm(message)) return;
     await deleteProspect(id);
     fetchProspects();
   };
@@ -234,7 +247,9 @@ function Prospects() {
                   </td>
                   <td className="px-4 py-3">
                     <button
-                      onClick={() => handleDelete(p.id)}
+                      onClick={() =>
+                        handleDelete(p.id, `${p.first_name} ${p.last_name}`)
+                      }
                       className="text-red-400 hover:text-red-600"
                     >
                       🗑

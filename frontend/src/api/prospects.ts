@@ -16,3 +16,10 @@ export const createProspect = async (
 export const deleteProspect = async (id: number): Promise<void> => {
   await api.delete(`/api/prospects/${id}/`);
 };
+
+export const getProspectCampaigns = async (
+  id: number,
+): Promise<{ id: number; name: string }[]> => {
+  const res = await api.get(`/api/prospects/${id}/campaigns`);
+  return res.data;
+};

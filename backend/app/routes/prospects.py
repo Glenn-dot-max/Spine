@@ -127,13 +127,32 @@ def update_prospect(
     db.refresh(db_prospect)
     return db_prospect
 
+@router.get("/{prospect_id}/campaigns")
+def get_prospect_campaigns(
+    prospect_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get campaign linked to a prospect."""
+    from app.models.campaign import Campaign, CampaignContact
+    contacts = db.query(CampaignContact).filter(
+        CampaignContact.prospect_id == prospect_id
+    ).all()
+    campaigns = []
+    for c in contacts:
+        campaign = db.query(Campaign).filter(Campaign.id == c.campaign_id).first()
+        if campaign:
+            campaigns.append({"id": campaign.id, "name": campaign.name})
+    return campaigns
+
 @router.delete("/{prospect_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_prospect(
-    prospect_id: int, 
+    prospect_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Delete a prospect (protected)."""
+    from app.models.campaign import CampaignContact
     db_prospect = db.query(ProspectModel).filter(
         ProspectModel.id == prospect_id,
         ProspectModel.user_id == current_user.id
@@ -145,6 +164,10 @@ def delete_prospect(
             detail=f"Prospect with ID {prospect_id} not found"
         )
     
+    db.query(CampaignContact).filter(
+        CampaignContact.prospect_id == prospect_id
+    ).delete()
+
     db.delete(db_prospect)
     db.commit()
     return None
