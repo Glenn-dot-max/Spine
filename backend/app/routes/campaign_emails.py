@@ -298,6 +298,8 @@ def preview_email(
             from app.services.email.advanced_template_renderer import advanced_renderer
             subject = advanced_renderer.render(template.subject_template, context)
             html_body = advanced_renderer.render(template.body_template, context)
+            if "<p>" not in html_body and "<br>" not in html_body:
+                html_body = html_body.replace("\n", "<br>")
         else:
             subject = email_service._get_fallback_subject(campaign.name, effective_step)
             html_body = email_service._get_fallback_body(

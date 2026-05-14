@@ -254,6 +254,9 @@ class EmailService:
             try:
                 subject = advanced_renderer.render(template.subject_template, context)
                 html_body = advanced_renderer.render(template.body_template, context)
+
+                if "<p>" not in html_body and "<br>" not in html_body:
+                    html_body = html_body.replace("\n", "<br>")
             except Exception as e:
                 raise Exception(f"Template rendering failed: {str(e)}")
             
