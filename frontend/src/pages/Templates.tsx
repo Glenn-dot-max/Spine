@@ -285,6 +285,31 @@ function Templates() {
     setEditingBody(false);
   };
 
+  const handleSelectGroup = (name: string) => {
+    const initial = templates.find(
+      (t) => t.name === name && t.category === "initial",
+    );
+    if (!initial) return;
+    setSelected({ ...initial });
+    setIsNew(false);
+    setIsWizard(false);
+    setIsDefault(false);
+    setEditingBody(false);
+  };
+
+  const handleDeleteGroup = async (name: string) => {
+    if (!confirm(`Delete all templates for "${name}"?`)) return;
+    try {
+      const toDelete = templates.filter((t) => t.name === name);
+      await Promise.all(toDelete.map((t) => deleteTemplate(t.id!)));
+      showMessage("success", "Templates deleted");
+      if (selected?.name === name) setSelected(null);
+      fetchTemplates();
+    } catch {
+      showMessage("error", "Failed to delete templates");
+    }
+  };
+
   const handleInsertVariable = (variable: string) => {
     if (!selected) return;
 
@@ -322,9 +347,7 @@ function Templates() {
   const handleSave = async () => {
     if (!selected) return;
     try {
-      const savedName = isWizard
-        ? `${selected.name} - ${CATEGORY_LABELS[selected.category as Category]}`
-        : selected.name;
+      const savedName = selected.name;
 
       const payload = { ...selected, name: savedName };
 
@@ -414,48 +437,44 @@ function Templates() {
       )}
 
       <div className="flex gap-6">
-        {/* Left — Template list */}
+        {/* Left - Template list */}
         <div className="w-1/3 space-y-4">
-          {CATEGORIES.map((cat) => (
-            <div key={cat} className="bg-white border rounded-lg p-4 shadow-sm">
-              <h3 className="font-semibold text-gray-700 mb-2 text-sm">
-                {CATEGORY_LABELS[cat]}
-              </h3>
-              {grouped[cat].length === 0 ? (
-                <p className="text-xs text-gray-400">No templates yet</p>
-              ) : (
-                <ul className="space-y-1">
-                  {grouped[cat].map((t) => (
-                    <li
-                      key={t.id}
-                      className={`flex justify-between items-center px-2 py-1 rounded cursor-pointer text-sm ${
-                        selected?.id === t.id
-                          ? "bg-blue-50 text-blue-600"
-                          : "hover:bg-gray-50"
-                      }`}
+          <div className="bg-white border rounded-lg p-4 shadow-sm">
+            <h3 className="font-semibold text-gray-700 mb-2 text-sm">
+              My Templates
+            </h3>
+            {templates.length === 0 ? (
+              <p className="text-xs text-gray-400">No templates yet</p>
+            ) : (
+              <ul className="space-y-1">
+                {[...new Set(templates.map((t) => t.name))].map((name) => (
+                  <li
+                    key={name}
+                    className={`flex justify-between items-center px-2 py-1 rounded cursor-pointer text-sm ${
+                      selected?.name === name
+                        ? "bg-blue-50 text-blue-600"
+                        : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <span onClick={() => handleSelectGroup(name)}>{name}</span>
+                    <button
+                      onClick={() => handleDeleteGroup(name)}
+                      className="text-red-400 hover:text-red-600 text-xs ml-2"
                     >
-                      <span onClick={() => handleSelect(t)}>{t.name}</span>
-                      {t.user_id && (
-                        <button
-                          onClick={() => handleDelete(t.id!)}
-                          className="text-red-400 hover:text-red-600 text-xs ml-2"
-                        >
-                          🗑
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
+                      🗑
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         {/* Right — Editor */}
         {selected ? (
           <div className="flex-1 bg-white border rounded-lg p-5 shadow-sm space-y-4">
             {/* Wizard progress bar */}
-            {isWizard && (
+            {isWizard ? (
               <div className="space-y-2">
                 <div className="flex justify-between text-xs text-gray-500">
                   {CATEGORIES.map((cat, i) => (
@@ -480,6 +499,33 @@ function Templates() {
                     style={{ width: `${((wizardStep + 1) / 4) * 100}%` }}
                   />
                 </div>
+              </div>
+            ) : (
+              <div className="flex border-b">
+                {CATEGORIES.map((cat) => {
+                  const t = templates.find(
+                    (t) => t.name === selected.name && t.category === cat,
+                  );
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        if (t) {
+                          setSelected({ ...t });
+                          setIsDefault(false);
+                          setEditingBody(false);
+                        }
+                      }}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                        selected.category === cat
+                          ? "border-blue-600 text-blue-600"
+                          : "border-transparent text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      {CATEGORY_LABELS[cat]}
+                    </button>
+                  );
+                })}
               </div>
             )}
 

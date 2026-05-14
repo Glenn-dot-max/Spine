@@ -91,7 +91,8 @@ def create_template(
     # Check if template with same name already exists for the user
     existing = db.query(EmailTemplate).filter(
         EmailTemplate.user_id == current_user.id,
-        EmailTemplate.name == template_data.name
+        EmailTemplate.name == template_data.name,
+        EmailTemplate.category == template_data.category
     ).first()
 
     if existing:
