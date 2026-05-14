@@ -35,6 +35,15 @@ class Campaign(Base):
     followup_delay_3 = Column(Integer, default=21, nullable=False)
     # ====================================================
 
+
+    # =============== TEMPLATES PAR CAMPAGNE =================
+    template_initial_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
+    template_followup_1_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
+    template_followup_2_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
+    template_followup_3_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
+    # ========================================================
+    
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -66,7 +75,7 @@ class CampaignContact(Base):
     custom_followup_delay_1 = Column(Integer, nullable=True)
     custom_followup_delay_2 = Column(Integer, nullable=True)
     custom_followup_delay_3 = Column(Integer, nullable=True)
-    # ====================================================
+    # ========================================================
 
     added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

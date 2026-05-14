@@ -48,39 +48,40 @@ class EmailService:
         }
         return templates.get(sequence_step, "initial")
     
-    def _load_template(self, user: User, template_name: str) -> Optional[EmailTemplate]:
-        """
-        Load email template from database.
+    def _load_template(self, user: User, template_name: str, campaign: Optional[Campaign] = None) -> Optional[EmailTemplate]:
         
-        Priority:
-        1. User's own template with this name
-        2. Global template with this name
-
-        Args:
-            user: User object
-            template_name: Name of the template to load
-
-        Returns:
-            EmailTemplate object or None if not found
-        """
-        # Try to load user's own template
+        # Priorité 1 : template spécifique à la campagne
+        if campaign:
+            template_id_map = {
+                "initial": campaign.template_initial_id,
+                "followup_1": campaign.template_followup_1_id,
+                "followup_2": campaign.template_followup_2_id,
+                "followup_3": campaign.template_followup_3_id,
+            }
+            template_id = template_id_map.get(template_name)
+            if template_id:
+                campaign_template = self.db.query(EmailTemplate).filter(
+                    EmailTemplate.id == template_id,
+                    EmailTemplate.is_active == True
+                ).first()
+                if campaign_template:
+                    return campaign_template
+                
+        # Priorité 2 : template global de l'utilisateur
         user_template = self.db.query(EmailTemplate).filter(
             EmailTemplate.user_id == user.id,
-            EmailTemplate.name == template_name,
+            EmailTemplate.category == template_name,
             EmailTemplate.is_active == True
         ).first()
-
         if user_template:
             return user_template
         
-        # Fallback to global template
-        global_template = self.db.query(EmailTemplate).filter(
+        # Priorité 3 : template global
+        return self.db.query(EmailTemplate).filter(
             EmailTemplate.user_id == None,
-            EmailTemplate.name == template_name,
+            EmailTemplate.category == template_name,
             EmailTemplate.is_active == True
         ).first()
-
-        return global_template
     
     def _build_context(
             self,
@@ -243,7 +244,7 @@ class EmailService:
             
         # Step 2: Load template
         template_name = template_override or self._get_template_name(contact.email_sequence_step)
-        template = self._load_template(user, template_name)
+        template = self._load_template(user, template_name, campaign)
 
         # Step 3: Build context
         context = self._build_context(prospect, campaign, user)

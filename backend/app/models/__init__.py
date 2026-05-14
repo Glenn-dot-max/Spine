@@ -6,7 +6,8 @@ from .user import User
 from .product import Product
 from .prospect import Prospect, ProspectSource, ProspectStatus
 from .prospect_product import ProspectProduct
-from .campaign import Campaign, CampaignContact, CampaignProduct  # ← AJOUTÉ
+from .campaign import Campaign, CampaignContact, CampaignProduct
+from .email_template import EmailTemplate
 
 __all__ = [
     "Base",
@@ -18,5 +19,6 @@ __all__ = [
     "ProspectProduct",
     "Campaign",             
     "CampaignContact",      
-    "CampaignProduct",      
+    "CampaignProduct",
+    "EmailTemplate",   
 ]

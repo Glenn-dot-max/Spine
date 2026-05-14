@@ -1,11 +1,26 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getCampaigns, createCampaign, deleteCampaign } from "../api/campaigns";
+import { getTemplates } from "../api/template";
 import type { Campaign } from "../types";
+
+const CATEGORY_LABELS: Record<string, string> = {
+  initial: "Initial Email",
+  followup_1: "Follow-up 1",
+  followup_2: "Follow-up 2",
+  followup_3: "Follow-up 3",
+};
+
+type Template = {
+  id: number;
+  name: string;
+  category: string;
+};
 
 function Campaigns() {
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [tab, setTab] = useState<"active" | "completed">("active");
@@ -20,10 +35,15 @@ function Campaigns() {
     followup_delay_1: 7,
     followup_delay_2: 14,
     followup_delay_3: 21,
+    template_initial_id: undefined as number | undefined,
+    template_followup_1_id: undefined as number | undefined,
+    template_followup_2_id: undefined as number | undefined,
+    template_followup_3_id: undefined as number | undefined,
   });
 
   useEffect(() => {
     fetchCampaigns();
+    fetchTemplates();
   }, []);
 
   const fetchCampaigns = async () => {
@@ -32,6 +52,15 @@ function Campaigns() {
       setCampaigns(data);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTemplates = async () => {
+    try {
+      const data = await getTemplates();
+      setTemplates(data);
+    } catch {
+      // silently fail
     }
   };
 
@@ -55,6 +84,10 @@ function Campaigns() {
       followup_delay_1: 7,
       followup_delay_2: 14,
       followup_delay_3: 21,
+      template_initial_id: undefined,
+      template_followup_1_id: undefined,
+      template_followup_2_id: undefined,
+      template_followup_3_id: undefined,
     });
     fetchCampaigns();
   };
@@ -188,6 +221,57 @@ function Campaigns() {
                 ))}
               </div>
             </div>
+
+            {/* Email Templates */}
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                📧 Email Templates{" "}
+                <span className="text-gray-400 font-normal">
+                  (optional — uses your default templates if not set)
+                </span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {(
+                  ["initial", "followup_1", "followup_2", "followup_3"] as const
+                ).map((cat) => {
+                  const fieldKey = `template_${cat}_id` as keyof typeof form;
+                  const options = templates.filter((t) => t.category === cat);
+                  return (
+                    <div key={cat}>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        {CATEGORY_LABELS[cat]}
+                      </label>
+                      <select
+                        value={form[fieldKey] ?? ""}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            [fieldKey]: e.target.value
+                              ? Number(e.target.value)
+                              : undefined,
+                          })
+                        }
+                        className="w-full border rounded px-3 py-2 text-sm"
+                      >
+                        <option value="">— Default template —</option>
+                        {options.length === 0 ? (
+                          <option disabled>
+                            No templates saved for this step
+                          </option>
+                        ) : (
+                          options.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="col-span-2 flex gap-2 justify-end">
               <button
                 type="button"

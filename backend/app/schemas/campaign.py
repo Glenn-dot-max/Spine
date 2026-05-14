@@ -20,6 +20,11 @@ class CampaignBase(BaseModel):
     followup_delay_1: Optional[int] = Field(7, ge=1, description="Delay in days for first follow-up email")
     followup_delay_2: Optional[int] = Field(14, ge=1, description="Delay in days for second follow-up email")
     followup_delay_3: Optional[int] = Field(21, ge=1, description="Delay in days for third follow-up email")
+
+    template_initial_id: Optional[int] = None
+    template_followup_1_id: Optional[int] = None
+    template_followup_2_id: Optional[int] = None
+    template_followup_3_id: Optional[int] = None
     
 class CampaignCreate(CampaignBase):
     """Schema for creating a new campaign."""
