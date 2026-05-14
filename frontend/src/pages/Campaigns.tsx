@@ -24,6 +24,7 @@ function Campaigns() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [tab, setTab] = useState<"active" | "completed">("active");
+  const [selectedTemplateName, setSelectedTemplateName] = useState<string>("");
 
   const [form, setForm] = useState({
     name: "",
@@ -74,6 +75,7 @@ function Campaigns() {
       description: form.description || undefined,
     });
     setShowForm(false);
+    setSelectedTemplateName("");
     setForm({
       name: "",
       event_date: "",
@@ -222,7 +224,7 @@ function Campaigns() {
               </div>
             </div>
 
-            {/* Email Templates */}
+            {/* Email templates */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 📧 Email Templates{" "}
@@ -230,46 +232,50 @@ function Campaigns() {
                   (optional — uses your default templates if not set)
                 </span>
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                {(
-                  ["initial", "followup_1", "followup_2", "followup_3"] as const
-                ).map((cat) => {
-                  const fieldKey = `template_${cat}_id` as keyof typeof form;
-                  const options = templates.filter((t) => t.category === cat);
-                  return (
-                    <div key={cat}>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        {CATEGORY_LABELS[cat]}
-                      </label>
-                      <select
-                        value={form[fieldKey] ?? ""}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            [fieldKey]: e.target.value
-                              ? Number(e.target.value)
-                              : undefined,
-                          })
-                        }
-                        className="w-full border rounded px-3 py-2 text-sm"
-                      >
-                        <option value="">— Default template —</option>
-                        {options.length === 0 ? (
-                          <option disabled>
-                            No templates saved for this step
-                          </option>
-                        ) : (
-                          options.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    </div>
+              <select
+                value={selectedTemplateName}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  setSelectedTemplateName(name);
+                  if (!name) {
+                    setForm({
+                      ...form,
+                      template_initial_id: undefined,
+                      template_followup_1_id: undefined,
+                      template_followup_2_id: undefined,
+                      template_followup_3_id: undefined,
+                    });
+                    return;
+                  }
+                  const t_initial = templates.find(
+                    (t) => t.name === name && t.category === "initial",
                   );
-                })}
-              </div>
+                  const t_f1 = templates.find(
+                    (t) => t.name === name && t.category === "followup_1",
+                  );
+                  const t_f2 = templates.find(
+                    (t) => t.name === name && t.category === "followup_2",
+                  );
+                  const t_f3 = templates.find(
+                    (t) => t.name === name && t.category === "followup_3",
+                  );
+                  setForm({
+                    ...form,
+                    template_initial_id: t_initial?.id,
+                    template_followup_1_id: t_f1?.id,
+                    template_followup_2_id: t_f2?.id,
+                    template_followup_3_id: t_f3?.id,
+                  });
+                }}
+                className="w-full border rounded px-3 py-2 text-sm"
+              >
+                <option value="">— Default templates —</option>
+                {[...new Set(templates.map((t) => t.name))].map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="col-span-2 flex gap-2 justify-end">
