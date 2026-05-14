@@ -269,6 +269,12 @@ class EmailService:
                 contact.email_sequence_step
             )
 
+        print(f"DEBUG SEND:")
+        print(f"  sequence_step = {contact.email_sequence_step}")
+        print(f"  reply_to_message_id = {contact.email_message_id}")
+        print(f"  thread_id = {contact.email_thread_id}")
+
+
         # Step 5: Send email
         try:
             if provider == "gmail":

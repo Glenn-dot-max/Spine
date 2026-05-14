@@ -4,13 +4,6 @@ import { getCampaigns, createCampaign, deleteCampaign } from "../api/campaigns";
 import { getTemplates } from "../api/template";
 import type { Campaign } from "../types";
 
-const CATEGORY_LABELS: Record<string, string> = {
-  initial: "Initial Email",
-  followup_1: "Follow-up 1",
-  followup_2: "Follow-up 2",
-  followup_3: "Follow-up 3",
-};
-
 type Template = {
   id: number;
   name: string;
