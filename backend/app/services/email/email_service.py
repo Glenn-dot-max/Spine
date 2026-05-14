@@ -296,7 +296,7 @@ class EmailService:
                     subject=subject,
                     html_body=html_body,
                     reply_to_message_id=contact.email_message_id,
-                    thread_id=contact.email_thread_id
+                    conversation_id=contact.email_thread_id
                 )
 
             else:
@@ -395,6 +395,8 @@ class EmailService:
                 sent += 1
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 failed += 1
                 errors.append({
                     "prospect_id": contact.prospect_id,
