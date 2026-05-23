@@ -8,6 +8,7 @@ from .prospect import Prospect, ProspectSource, ProspectStatus
 from .prospect_product import ProspectProduct
 from .campaign import Campaign, CampaignContact, CampaignProduct
 from .email_template import EmailTemplate
+from .company import Company, StructureType, ContactType
 
 __all__ = [
     "Base",
@@ -20,5 +21,8 @@ __all__ = [
     "Campaign",             
     "CampaignContact",      
     "CampaignProduct",
-    "EmailTemplate",   
+    "EmailTemplate",
+    "Company",
+    "StructureType",
+    "ContactType",
 ]

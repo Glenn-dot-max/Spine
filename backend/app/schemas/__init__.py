@@ -26,6 +26,7 @@ from .email import (
     EmailPreviewRequest,
     EmailPreviewResponse,
 )
+from .company import Company as CompanySchema, CompanyCreate, CompanyUpdate
 
 __all__ = [
     "Product",
@@ -58,6 +59,9 @@ __all__ = [
     "BulkEmailSendResponse",
     "EmailPreviewRequest",
     "EmailPreviewResponse",
+    "CompanySchema",
+    "CompanyCreate",
+    "CompanyUpdate",
 ]
 
 from typing import List

@@ -4,10 +4,13 @@ Prospect model - represents leads from various sources.
 
 from sqlalchemy import String, Text, Enum, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 import enum
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.company import Company
 
 class ProspectSource(str, enum.Enum):
     """Source of prospect acquisition."""
@@ -50,12 +53,18 @@ class Prospect(Base, TimestampMixin):
     # Company information
     position: Mapped[Optional[str]] = mapped_column(String(100))
     company_name: Mapped[Optional[str]] = mapped_column(String(255))
+    company_id : Mapped[Optional[int]] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
     company_size: Mapped[Optional[str]] = mapped_column(String(50))
     market: Mapped[Optional[str]] = mapped_column(String(100))
 
     # Lead Management
     source: Mapped[ProspectSource] = mapped_column(Enum(ProspectSource), nullable=False)
     source_notes: Mapped[Optional[str]] = mapped_column(Text)
+    source_detail: Mapped[Optional[str]] = mapped_column(String(255))
     status: Mapped[ProspectStatus] = mapped_column(
         Enum(ProspectStatus),
         nullable=False,
@@ -68,7 +77,7 @@ class Prospect(Base, TimestampMixin):
         back_populates="prospect",
         cascade="all, delete-orphan"
     )
-
+    company: Mapped[Optional["Company"]] = relationship(back_populates="prospects")
     # Indexes for performance
     __table_args__ = (
         Index('ix_prospects_user_status', 'user_id', 'status'),

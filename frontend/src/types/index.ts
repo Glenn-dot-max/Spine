@@ -56,3 +56,22 @@ export interface Product {
   name: string;
   short_description?: string;
 }
+
+export interface Company {
+  id: number;
+  user_id: number;
+  name: string;
+  market?: string;
+  website?: string;
+  notes?: string;
+  type_structure?: "retail" | "foodservice" | "industry" | "other";
+  type_contact?:
+    | "distributor"
+    | "restaurant"
+    | "factory"
+    | "consultant"
+    | "retailer"
+    | "other";
+  created_at: string;
+  updated_at: string;
+}
