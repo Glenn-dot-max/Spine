@@ -1,49 +1,20 @@
 """
-Dependencies for FastAPI routes.
+SPINE V1 - api/deps.py
+==========================
+Rôle : Point de compatibilité - réexporte depuis app.core.deps.
+Dépendances : app.core.deps
+Utilisé par : tous les routes /* et api/oauth.py
+Sécurité : La logique réelle est dans app.core.deps (validation token type + is_active)
+À faire : migrer tous les imports vers app.core.deps directetement (nettoyage futur)
+Dernière modification : 2026 - 05 - 2025 - suppression du code JWT dupliqué
 """
-from typing import Generator
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
-from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-from app.models.user import User
-from app.services.auth import SECRET_KEY, ALGORITHM
+from app.core.deps import (
+    get_current_user,
+    get_db
+)
 
-# ✅ HTTPBearer → Swagger affiche un champ "token" propre
-http_bearer = HTTPBearer()
-
-def get_db() -> Generator:
-    """Get database session."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-def get_current_user(
-        credentials: HTTPAuthorizationCredentials = Depends(http_bearer),
-        db: Session = Depends(get_db)
-) -> User:
-    """Get current authenticated user from JWT token."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    try:
-        token = credentials.credentials  
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    
-    user = db.query(User).filter(User.email == email).first()
-    if user is None:
-        raise credentials_exception
-    
-    return user
+__all__ = [
+    "get_current_user",
+    "get_db"
+]

@@ -17,7 +17,6 @@ from app.schemas.email import (
 )
 from app.api.deps import get_current_user
 from app.services.email.email_service import EmailService
-from app.services.email.template_renderer import email_renderer
 
 router = APIRouter(prefix="/campaigns", tags=["campaign-emails"])
 
