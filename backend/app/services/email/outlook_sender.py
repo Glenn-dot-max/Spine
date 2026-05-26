@@ -18,7 +18,7 @@ from app.core.config import (
     MICROSOFT_CLIENT_SECRET,
     MICROSOFT_TENANT_ID,
 )
-
+from app.services.crypto import encrypt, decrypt
 
 class OutlookSender:
     """
@@ -69,16 +69,13 @@ class OutlookSender:
         Returns:
             Valid access token
         """
-        print("🔍 [DEBUG] Checking if token is expired...")
-        is_expired = self._is_token_expired(self.user.outlook_access_token)
-        print(f"🔍 [DEBUG] Token expired: {is_expired}")
+        decrypted_token = decrypt(self.user.outlook_access_token)
+        is_expired = self._is_token_expired(decrypted_token)
         
         if is_expired:
-            print("🔄 [DEBUG] Refreshing token...")
             return self._refresh_access_token()
         
-        print("✅ [DEBUG] Token still valid")
-        return self.user.outlook_access_token
+        return decrypted_token
         
     
     def _refresh_access_token(self) -> str:
@@ -90,26 +87,21 @@ class OutlookSender:
             New access token
         """
         try:
-            print("🔄 [DEBUG] Calling refresh_outlook_token...")
-            tokens = refresh_outlook_token(self.user.outlook_refresh_token)
-            print("✅ [DEBUG] Got new tokens")
+            tokens = refresh_outlook_token(decrypt(self.user.outlook_refresh_token))
 
             # ✅ Refetch user from DB to attach to session
             from app.models.user import User
-            print("🔍 [DEBUG] Fetching user from DB...")
             db_user = self.db.query(User).filter(User.id == self.user.id).first()
             if not db_user:
                 raise Exception("User not found")
             
-            print("💾 [DEBUG] Saving new tokens to DB...")
-            db_user.outlook_access_token = tokens["access_token"]
+            db_user.outlook_access_token = encrypt(tokens["access_token"])
             # MSAL may issue a new refresh token; save it if provided
             if tokens.get("refresh_token"):
-                db_user.outlook_refresh_token = tokens["refresh_token"]
-
+                db_user.outlook_refresh_token = encrypt(tokens["refresh_token"])
+            
             self.db.commit()
             self.db.refresh(db_user)
-            print("✅ [DEBUG] Tokens saved to DB")
 
             # Update instance variable
             self.user = db_user
@@ -117,7 +109,6 @@ class OutlookSender:
             return tokens["access_token"]
 
         except Exception as e:
-            print(f"❌ [DEBUG] Refresh failed: {str(e)}")
             raise Exception(f"Failed to refresh Outlook token: {str(e)}")
 
     def _find_sent_message_robust(
@@ -149,11 +140,9 @@ class OutlookSender:
             Tuple of (message_id, conversation_id) or (None, None)
         """
         for attempt in range(max_retries):
-            print(f"🔍 [DEBUG] Search attempt {attempt + 1}/{max_retries}")
             
             # Wait before searching (increases with each retry)
             wait_time = retry_delay * (attempt + 1)
-            print(f"⏳ [DEBUG] Waiting {wait_time}s for message to appear in SentItems...")
             time.sleep(wait_time)
             
             # Query SentItems - get last 20 messages
@@ -169,7 +158,6 @@ class OutlookSender:
                 response.raise_for_status()
                 messages = response.json().get("value", [])
                 
-                print(f"📬 [DEBUG] Found {len(messages)} recent sent messages")
                 
                 # Strategy 1: Find by tracking header (most reliable)
                 for msg in messages:
@@ -178,10 +166,8 @@ class OutlookSender:
                         if header.get("name") == "X-Spine-Tracking-ID" and header.get("value") == tracking_id:
                             message_id = msg.get("id")
                             conv_id = msg.get("conversationId")
-                            print(f"✅ [DEBUG] Found by tracking header!")
                             return (message_id, conv_id)
                 
-                print("⚠️ [DEBUG] Not found by tracking header, trying conversation_id...")
                 
                 # Strategy 2: Find by conversation_id + recipient
                 for msg in messages:
@@ -192,16 +178,13 @@ class OutlookSender:
                             if recipient.lower() == recipient_email.lower():
                                 message_id = msg.get("id")
                                 conv_id = msg.get("conversationId")
-                                print(f"✅ [DEBUG] Found by conversation_id + recipient match!")
                                 return (message_id, conv_id)
                 
-                print("⚠️ [DEBUG] Message not found in this attempt, will retry...")
                 
             except Exception as e:
-                print(f"❌ [DEBUG] Error during search: {str(e)}")
+                continue
         
         # All retries exhausted
-        print("❌ [DEBUG] Could not find sent message after all retries")
         return (None, None)
 
     def send_email(
@@ -231,13 +214,8 @@ class OutlookSender:
             Exception: If sending fails
         """
         try:
-            print("📧 [DEBUG] Starting send_email...")
-            print(f"📧 [DEBUG] reply_to_message_id: {reply_to_message_id}")
-            print(f"📧 [DEBUG] conversation_id: {conversation_id}")
-
             # Get access token
             access_token = self._refresh_token_if_needed()
-            print(f"🔑 [DEBUG] Got access token (length: {len(access_token)})")
 
             headers = {
                 "Authorization": f"Bearer {access_token}",
@@ -246,19 +224,13 @@ class OutlookSender:
 
             # ============ FOLLOW-UP EMAIL (REPLY) ================
             if reply_to_message_id:
-                print("🔄 [DEBUG] This is a FOLLOW-UP (reply)")
-                print(f"🔗 [DEBUG] Original message ID: {reply_to_message_id}")
-                print(f"🔗 [DEBUG] Conversation ID: {conversation_id}")
-
                 # Generate unique tracking header
                 tracking_id = str(uuid.uuid4())
-                print(f"🔖 [DEBUG] Tracking ID: {tracking_id}")
 
                 # Step 1: Get the original message to extract headers
                 get_message_url = f"https://graph.microsoft.com/v1.0/me/messages/{reply_to_message_id}"
                 params = {"$select": "subject,internetMessageId"}
                 
-                print(f"📤 [DEBUG] Fetching original message headers...")
                 response = requests.get(get_message_url, headers=headers, params=params)
                 if response.status_code == 401:
                     access_token = self._refresh_access_token()
@@ -270,9 +242,6 @@ class OutlookSender:
                 original_subject = original_message.get("subject", "")
                 internet_message_id = original_message.get("internetMessageId", "")
                 
-                print(f"✅ [DEBUG] Original subject: {original_subject}")
-                print(f"✅ [DEBUG] Original internet message ID: {internet_message_id}")
-
                 # Prepare subject with "Re:" if not already there
                 follow_up_subject = original_subject
                 if not follow_up_subject.lower().startswith("re:"):
@@ -315,7 +284,6 @@ class OutlookSender:
                 if extended_props:
                     message_payload["singleValueExtendedProperties"] = extended_props
 
-                print(f"📤 [DEBUG] Creating follow-up message draft...")
                 response = requests.post(create_message_url, headers=headers, json=message_payload)
                 if response.status_code == 401:
                     access_token = self._refresh_access_token()
@@ -327,20 +295,14 @@ class OutlookSender:
                 draft_id = draft.get("id")
                 draft_conversation_id = draft.get("conversationId")
 
-                print(f"✅ [DEBUG] Follow-up draft created: {draft_id}")
-                print(f"✅ [DEBUG] Draft conversation ID: {draft_conversation_id}")
-
                 # Step 3: Send the draft
                 send_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send"
-                print(f"📤 [DEBUG] Sending follow-up draft...")
 
                 response = requests.post(send_url, headers=headers)
                 response.raise_for_status()
                 
-                print("✅ [DEBUG] Follow-up sent successfully!")
 
                 # Step 4: Retrieve the sent message with ROBUST SEARCH
-                print("🔍 [DEBUG] Retrieving sent follow-up message...")
                 
                 sent_message_id, sent_conversation_id = self._find_sent_message_robust(
                     headers=headers,
@@ -352,13 +314,11 @@ class OutlookSender:
                 )
                 
                 if sent_message_id:
-                    print(f"✅ [DEBUG] Successfully retrieved sent follow-up ID: {sent_message_id}")
                     return {
                         "message_id": sent_message_id,
                         "conversation_id": sent_conversation_id or conversation_id
                     }
                 else:
-                    print("⚠️ [DEBUG] Could not retrieve sent message, using draft IDs")
                     return {
                         "message_id": draft_id,
                         "conversation_id": conversation_id or draft_conversation_id
@@ -366,11 +326,9 @@ class OutlookSender:
 
             # ============ INITIAL EMAIL ================
             else:
-                print("📧 [DEBUG] This is an INITIAL email")
 
                 # Generate unique tracking header
                 tracking_id = str(uuid.uuid4())
-                print(f"🔖 [DEBUG] Tracking ID: {tracking_id}")
 
                 # Step 1: Create draft message with tracking header
                 create_message_url = "https://graph.microsoft.com/v1.0/me/messages"
@@ -395,7 +353,6 @@ class OutlookSender:
                     ]
                 }
 
-                print(f"📤 [DEBUG] Creating draft message...")
                 response = requests.post(create_message_url, headers=headers, json=message_payload)
                 if response.status_code == 401:
                     access_token = self._refresh_access_token()
@@ -407,20 +364,14 @@ class OutlookSender:
                 draft_id = draft.get("id")
                 draft_conversation_id = draft.get("conversationId")
 
-                print(f"✅ [DEBUG] Draft created with ID: {draft_id}")
-                print(f"✅ [DEBUG] Draft conversation ID: {draft_conversation_id}")
 
                 # Step 2: Send the draft
                 send_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send"
-                print(f"📤 [DEBUG] Sending draft message...")
 
                 response = requests.post(send_url, headers=headers)
                 response.raise_for_status()
                 
-                print("✅ [DEBUG] Draft sent successfully!")
-
                 # Step 3: Retrieve the sent message with ROBUST SEARCH
-                print("🔍 [DEBUG] Retrieving sent message with robust search...")
                 
                 sent_message_id, sent_conversation_id = self._find_sent_message_robust(
                     headers=headers,
@@ -432,13 +383,11 @@ class OutlookSender:
                 )
                 
                 if sent_message_id:
-                    print(f"✅ [DEBUG] Successfully retrieved sent message ID: {sent_message_id}")
                     return {
                         "message_id": sent_message_id,
                         "conversation_id": sent_conversation_id
                     }
                 else:
-                    print("⚠️ [DEBUG] Could not retrieve sent message, using draft IDs as fallback")
                     return {
                         "message_id": draft_id,
                         "conversation_id": draft_conversation_id
@@ -451,10 +400,8 @@ class OutlookSender:
             except Exception:
                 error_body = str(e)
             status_code = e.response.status_code if e.response is not None else "unknown"
-            print(f"❌ [DEBUG] HTTP Error: {status_code} - {error_body}")
             raise Exception(f"Outlook API error: {status_code} - {error_body}")
         except Exception as e:
-            print(f"❌ [DEBUG] Exception: {str(e)}")
             raise Exception(f"Failed to send email via Outlook: {str(e)}") from e
 
 

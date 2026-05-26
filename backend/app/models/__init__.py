@@ -9,6 +9,7 @@ from .prospect_product import ProspectProduct
 from .campaign import Campaign, CampaignContact, CampaignProduct
 from .email_template import EmailTemplate
 from .company import Company, StructureType, ContactType
+from .oauth_state import OAuthState
 
 __all__ = [
     "Base",
@@ -25,4 +26,5 @@ __all__ = [
     "Company",
     "StructureType",
     "ContactType",
+    "OAuthState",
 ]

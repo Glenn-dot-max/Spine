@@ -12,7 +12,6 @@ from typing import Optional, Dict
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.services.oauth.gmail_oauth import refresh_gmail_token
 from app.core.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 
@@ -47,9 +46,10 @@ class GmailSender:
             Valid Gmail OAuth credentials
         """
         # Create credentials object
+        from app.services.crypto import decrypt  
         credentials = Credentials(
-            token=self.user.gmail_access_token,
-            refresh_token=self.user.gmail_refresh_token,
+            token=decrypt(self.user.gmail_access_token),
+            refresh_token=decrypt(self.user.gmail_refresh_token or ""),
             token_uri="https://oauth2.googleapis.com/token",
             client_id=GOOGLE_CLIENT_ID,
             client_secret=GOOGLE_CLIENT_SECRET,
@@ -64,8 +64,9 @@ class GmailSender:
             from google.auth.transport.requests import Request
             credentials.refresh(Request())
             
-            # Save new access token to database
-            self.user.gmail_access_token = credentials.token
+            # Save new access token to database (chiffré)
+            from app.services.crypto import encrypt
+            self.user.gmail_access_token = encrypt(credentials.token)
             self.db.commit()
         
         return credentials

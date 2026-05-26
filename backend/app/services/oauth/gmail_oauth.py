@@ -9,6 +9,8 @@ from app.core.config import (
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
 )
+from app.models.user import User
+from app.services.crypto import decrypt, encrypt
 
 SCOPES = [
     'openid',

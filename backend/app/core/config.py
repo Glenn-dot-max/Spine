@@ -29,3 +29,8 @@ MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")
 MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET")
 MICROSOFT_TENANT_ID = os.getenv("MICROSOFT_TENANT_ID", "common")
 MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/api/oauth/outlook/callback")
+
+# Chiffrement AES-256 Fernet (tokens OAuth)
+FERNET_KEY = os.getenv("FERNET_KEY")
+if not FERNET_KEY:
+    raise ValueError("FERNET_KEY is not set in environment variables.")
