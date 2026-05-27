@@ -14,41 +14,9 @@ from app.models.campaign import Campaign, CampaignContact
 from app.models.prospect import Prospect
 from app.api.deps import get_current_user
 from app.services.email.email_service import EmailService
+from app.services.followup_utils import get_effective_delay, schedule_next_followup
 
 router = APIRouter(prefix="/campaigns", tags=["follow-ups"])
-
-# ================= SCHEMAS =================
-
-def get_effective_delay(contact: CampaignContact, campaign: Campaign, step: int) -> Optional[int]:
-    """
-    Retourne le délai effectif en jours pour le prochain follow-up.
-    Priorité : délai custom du contact > délai par défaut de la campagne.
-    step : email_sequence_step APRÈS envoi (1, 2, 3)
-    Retourne None si plus de follow-up à planifier (step > 3).
-    """
-    if step == 1:
-        return contact.custom_followup_delay_1 or campaign.followup_delay_1
-    elif step == 2:
-        return contact.custom_followup_delay_2 or campaign.followup_delay_2
-    elif step == 3:
-        return contact.custom_followup_delay_3 or campaign.followup_delay_3
-    else:
-        return None
-
-def schedule_next_followup(contact: CampaignContact, campaign: Campaign) -> Optional[datetime]:
-    """
-    Calcule et assigne la prochaine date de follow-up après un envoi.
-    Retourne la date planifiée ou None si séquence terminée.
-    """
-    delay = get_effective_delay(contact, campaign, contact.email_sequence_step)
-
-    if delay is None:
-        contact.next_follow_up_scheduled_at = None
-        return None
-    
-    next_date = datetime.utcnow() + timedelta(days=delay)
-    contact.next_follow_up_scheduled_at = next_date
-    return next_date
 
 # ================= SCHEMAS =================
 

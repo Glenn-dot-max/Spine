@@ -3,6 +3,7 @@ Email service orchestrator for campaigns.
 Coordinates template rendering, email sending, and database updates.
 """
 from typing import Optional, Dict, Any
+from app.services.followup_utils import schedule_next_followup
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -323,7 +324,6 @@ class EmailService:
             from app.models.campaign import TradeShowStatus
             campaign.status = TradeShowStatus.ACTIVE
         
-        from app.routes.followups import schedule_next_followup
         schedule_next_followup(contact, campaign)
 
         from app.models.campaign import TradeShowStatus

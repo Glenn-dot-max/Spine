@@ -42,7 +42,7 @@ class EmailTemplate(Base, TimestampMixin):
 
     # Unique constraint
     __table_args__ = (
-        Index('ix_email_templates_user_id_name', 'user_id', 'name', unique=True),
+        Index('ix_email_templates_user_id_name_category', 'user_id', 'name', 'category'),
     )
 
     def __repr__(self) -> str:
