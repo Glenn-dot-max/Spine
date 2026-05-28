@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getCompanies, createCompany, deleteCompany } from "../api/companies";
-import { Company } from "../types";
+import type { Company } from "../types";
 
 function Companies() {
   const [companies, setCompanies] = useState<Company[]>([]);
