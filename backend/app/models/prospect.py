@@ -29,13 +29,12 @@ class ProspectSource(str, enum.Enum):
 
 class ProspectStatus(str, enum.Enum):
     """Current status of the prospect."""
-    new = "new"
-    contacted = "contacted"
-    qualified = "qualified"
-    proposal_sent = "proposal_sent"
-    negociation = "negotiation"
-    closed_won = "closed_won"
-    closed_lost = "closed_lost"
+    new = "new"                 # Jamais contacté
+    contacted = "contacted"     # Au moins un contact établi (email ou appel)
+    oven = "oven"               # Intéressé, à suivre activement
+    fridge = "fridge"           # Pas maintenant, à recontacter plus tard
+    trash = "trash"             # Pas intéressé, ne pas recontacter
+    converted = "converted"     # Converti en client
 
 class Prospect(Base, TimestampMixin):
     """Prospect/lead for CRM management."""
@@ -43,6 +42,8 @@ class Prospect(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint('email', 'user_id', name='uq_prospects_email_user'),
+        Index('ix_prospects_user_status', 'user_id', 'status'),
+        Index('ix_prospects_user_source', 'user_id', 'source'),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -88,11 +89,6 @@ class Prospect(Base, TimestampMixin):
         cascade="all, delete-orphan"
     )
     company: Mapped[Optional["Company"]] = relationship(back_populates="prospects")
-    # Indexes for performance
-    __table_args__ = (
-        Index('ix_prospects_user_status', 'user_id', 'status'),
-        Index('ix_prospects_user_source', 'user_id', 'source'),
-    )
 
     def __repr__(self) -> str:
         return f"<Prospect {self.first_name} {self.last_name} ({self.email}) - Status: {self.status}>"

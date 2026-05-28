@@ -5,12 +5,13 @@ Checks for replies from prospects and updates their status.
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
+from pydantic import BaseModel
 
 from app.db import get_db
 from app.models.user import User
 from app.models.campaign import Campaign, CampaignContact
-from app.models.prospect import Prospect
+from app.models.prospect import Prospect, ProspectStatus
 from app.api.deps import get_current_user
 from app.services.email.gmail_response_checker import check_gmail_thread_for_response
 from app.services.email.outlook_response_checker import check_outlook_conversation_for_response
@@ -215,3 +216,89 @@ def check_all_campaign_responses(
         "new_responded": responses_found,
         "errors": errors if errors else None
     }
+
+# =============== QUALIFIER UN CONTACT ==================
+
+class QualifyContactRequest(BaseModel):
+    """Schéma pour qualifier un contact après réception d'une réponse."""
+    qualification: str # "oven", "fridge", "trash", "converted"
+    notes: Optional[str] = None
+    
+VALID_QUALIFICATIONS = {"oven", "fridge", "trash", "converted"}
+
+@router.patch("/{campaign_id}/contacts/{prospect_id}/qualify")
+def qualify_contact(
+    campaign_id: int,
+    prospect_id: int,
+    body: QualifyContactRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Qualifie manuellement un contact après réception d'une réponse.
+    Met à jour le statut dans CampaignContact et dans Prospect (statut global CRM).
+
+    Qualifications disponibles :
+    - "oven" : Intéressé, à suivre activement -> stoppe les follow-ups automatiques
+    - "fridge" : Pas maintenant, à recontacter plus tard -> stoppe les follow-ups
+    - "trash" : Pas intéressé, ne pas recontacter -> stoppe les follow-ups
+    - "converted" : Converti en client -> stoppe les follow-ups et marque prospect comme converti
+    """
+    if body.qualification not in VALID_QUALIFICATIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Qualification invalide. Valeurs acceptées : {VALID_QUALIFICATIONS}"
+        )
+    
+    # Vérifier que la campage appartient à l'utilisateur
+    campaign = db.query(Campaign).filter(
+        Campaign.id == campaign_id,
+        Campaign.user_id == current_user.id
+    ).first()
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign {campaign_id} not found"
+        )
+    
+    # Récupérer le lien campagne-contact
+    contact = db.query(CampaignContact).filter(
+        CampaignContact.campaign_id == campaign_id,
+        CampaignContact.prospect_id == prospect_id
+    ).first()
+    if not contact:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prospect {prospect_id} not linked to campaign {campaign_id}"
+        )
+    
+    # Mettre à jour le statut de la campagne
+    contact.status = body.qualification
+
+    # Stopper les follow-ups automatiques pour tous les qualifiés
+    contact.next_follow_up_scheduled_at = None
+
+    if body.notes:
+        contact.notes = body.notes
+
+    # Mettre à jour le statut global du prospect dans le CRM
+    prospect = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not prospect:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prospect {prospect_id} not found"
+        )
+    
+    prospect.status = ProspectStatus(body.qualification)
+
+    db.commit()
+
+    return {
+        "prospect_id": prospect_id,
+        "campaign_id": campaign_id,
+        "campaign_status": contact.status,
+        "crm_status": prospect.status if prospect else None,
+        "follow_ups_stopped": True,
+        "message": f"Contact qualified as {contact.status}. Follow-ups stopped."
+    }
+
