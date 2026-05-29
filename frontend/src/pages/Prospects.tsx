@@ -13,7 +13,6 @@ function Prospects() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
-  const [prospectCampaigns, setProspe]
 
   const [form, setForm] = useState({
     first_name: "",
