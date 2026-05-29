@@ -23,3 +23,11 @@ export const getProspectCampaigns = async (
   const res = await api.get(`/api/prospects/${id}/campaigns`);
   return res.data;
 };
+
+export const updateProspect = async (
+  id: number,
+  data: Partial<Prospect>,
+): Promise<Prospect> => {
+  const res = await api.put(`/api/prospects/${id}/`, data);
+  return res.data;
+};

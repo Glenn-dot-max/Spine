@@ -4,6 +4,7 @@ import {
   createProspect,
   deleteProspect,
   getProspectCampaigns,
+  updateProspect,
 } from "../api/prospects";
 import type { Prospect } from "../types";
 
@@ -12,6 +13,7 @@ function Prospects() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
+  const [prospectCampaigns, setProspe]
 
   const [form, setForm] = useState({
     first_name: "",
@@ -63,6 +65,11 @@ function Prospects() {
 
     if (!confirm(message)) return;
     await deleteProspect(id);
+    fetchProspects();
+  };
+
+  const handleStatusChange = async (id: number, newStatus: string) => {
+    await updateProspect(id, { status: newStatus });
     fetchProspects();
   };
 
@@ -243,7 +250,18 @@ function Prospects() {
                   </td>
                   <td className="px-4 py-3 text-gray-500">{p.source}</td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={p.status} />
+                    <select
+                      value={p.status}
+                      onChange={(e) => handleStatusChange(p.id, e.target.value)}
+                      className={`px-2 py-1 rounded-full text-xs font-medium border-0 cursor-pointer focus:outline-none ${statusStyle(p.status)}`}
+                    >
+                      <option value="new">new</option>
+                      <option value="contacted">contacted</option>
+                      <option value="oven">oven</option>
+                      <option value="fridge">fridge</option>
+                      <option value="trash">trash</option>
+                      <option value="converted">converted</option>
+                    </select>
                   </td>
                   <td className="px-4 py-3">
                     <button
@@ -265,20 +283,16 @@ function Prospects() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function statusStyle(status: string): string {
   const styles: Record<string, string> = {
     new: "bg-blue-100 text-blue-700",
     contacted: "bg-yellow-100 text-yellow-700",
-    qualified: "bg-green-100 text-green-700",
-    lost: "bg-red-100 text-red-700",
+    oven: "bg-orange-100 text-orange-700",
+    fridge: "bg-cyan-100 text-cyan-700",
+    trash: "bg-red-100 text-red-700",
+    converted: "bg-green-100 text-green-700",
   };
-  return (
-    <span
-      className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] ?? "bg-gray-100"}`}
-    >
-      {status}
-    </span>
-  );
+  return styles[status] ?? "bg-gray-100 text-gray-600";
 }
 
 export default Prospects;
