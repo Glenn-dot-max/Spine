@@ -1,28 +1,44 @@
 """
-Pydantic schemas for Product API validation.
+SPINE V1 - Product schemas
+==========================
+Rôle : Validation Pydantic pour les endpoints produits. 
+Dépendances : models/product.py
+Utilisé par : routes/products.py, routes/product_import.py
+Dernière modification : 2026-05-29 - Ajout champs food distribution
 """
+
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
 class ProductBase(BaseModel):
-    """Base schema with common fields."""
-    item_number: str = Field(..., min_length=1, max_length=100, description="Product SKU/item code")
-    name: str = Field(..., min_length=1, max_length=255, description="Product name")
-    short_description: Optional[str] = Field(None, description="Brief product description")
+    item_number: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=255)
+    brand: Optional[str] = None
+    short_description: Optional[str] = None
+    category: Optional[str] = None
+    formats: Optional[str] = None
+    price_range: Optional[str] = None
+    certifications: Optional[str] = None
+    segments: Optional[str] = None
+    is_active: bool = True
 
 class ProductCreate(ProductBase):
-    """Schema for creating a new product."""
     pass
 
 class ProductUpdate(BaseModel):
-    """Schema for updating an existing product."""
     item_number: Optional[str] = Field(None, min_length=1, max_length=100)
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    brand: Optional[str] = None
     short_description: Optional[str] = None
-  
+    category: Optional[str] = None
+    formats: Optional[str] = None
+    price_range: Optional[str] = None
+    certifications: Optional[str] = None
+    segments: Optional[str] = None
+    is_active: Optional[bool] = None
+
 class Product(ProductBase):
-    """Schema for productresponse (includes DB fields)."""
     id: int
     created_at: datetime
     updated_at: datetime

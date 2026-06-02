@@ -26,33 +26,60 @@ async def download_import_template():
     """
     from fastapi.responses import StreamingResponse
 
-    # Create template with headers and example row
+    # Create template with all food distribution fields + example rows
     df = pd.DataFrame({
-        'item_number': ['EXAMPLE-004', 'EXAMPLE-005', 'EXAMPLE-006'],
-        'name': ['Example Product 12', 'Example Product 24', 'Example Product 36'],
+        'item_number':    ['CLOV-MUS-IBC', 'CLOV-VIN-5L', 'CLOV-BAL-1L'],
+        'name':           ['Clovis Dijon Mustard IBC', 'Clovis White Vinegar 5L', 'Clovis Balsamic 1L'],
+        'brand':          ['Clovis', 'Clovis', 'Clovis'],
         'short_description': [
-            'This is an  description',
-            'Another test product',
-            'Delete these rows and fill with test data'
-        ]
+            'Industrial grade Dijon mustard in IBC tote',
+            'White wine vinegar for foodservice',
+            'Premium balsamic vinegar retail format'
+        ],
+        'category':       ['mustard', 'vinegar', 'balsamic'],
+        'formats':        ['IBC 1000L, drum 200L', '5L bottle, 10L bag-in-box', '1L bottle, case of 12'],
+        'price_range':    ['$2.20-$2.60/kg', '$1.80-$2.10/L', '$4.50-$5.20/L'],
+        'certifications': ['Kosher, Non-GMO', 'Organic, Kosher', 'Organic'],
+        'segments':       ['industry, foodservice', 'foodservice, retail', 'retail, foodservice'],
     })
 
-    # Write to Excel with multiple sheets
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Product sheet
         df.to_excel(writer, index=False, sheet_name='Products')
 
-        # Instructions sheet
         instructions = pd.DataFrame({
-            'Step': [1, 2, 3, 4, 5, 6],
-            'Instructions': [
-                'Fill the "Products" sheet with your product data.',
-                'Required columns: item_number, name.',
-                'Optional column: short_description.',
-                'Delete the example rows (EXAMPLE-001, EXAMPLE-002, EXAMPLE-003) before uploading.',
-                'Save the file',
-                'Upload via POST /api/products/import in Swagger UI.'
+            'Column': [
+                'item_number ✅ REQUIRED',
+                'name ✅ REQUIRED',
+                'brand',
+                'short_description',
+                'category',
+                'formats',
+                'price_range',
+                'certifications',
+                'segments',
+            ],
+            'Description': [
+                'Unique product code / SKU',
+                'Full product name',
+                'Brand name',
+                'Short product description',
+                'Product category: mustard / vinegar / balsamic / crepes / other',
+                'Available formats, comma-separated: "IBC 1000L, drum 200L, 5L bottle"',
+                'Price range: "$2.20-$2.60/kg"',
+                'Certifications comma-separated: "Organic, Kosher, Non-GMO"',
+                'Target segments comma-separated: "industry, foodservice, retail"',
+            ],
+            'Example': [
+                'CLOV-MUS-IBC',
+                'Clovis Dijon Mustard IBC',
+                'Clovis',
+                'Industrial grade Dijon mustard',
+                'mustard',
+                'IBC 1000L, drum 200L',
+                '$2.20-$2.60/kg',
+                'Kosher, Non-GMO',
+                'industry, foodservice',
             ]
         })
         instructions.to_excel(writer, index=False, sheet_name='Instructions')
@@ -185,9 +212,14 @@ async def import_products(
             if existing:
                 if update_existing:
                     # Update existing product
+                    def get_field(field):
+                        return str(row[field]).strip() if field in row and pd.notna(row[field]) else None
+                    
                     existing.name = name
-                    if 'short_description' in row and pd.notna(row['short_description']):
-                        existing.short_description = str(row['short_description']).strip()
+                    for field in ['brand', 'category', 'formats', 'price_range', 'certifications', 'segments']:
+                        value = get_field(field)
+                        if value is not None:
+                            setattr(existing, field, value)                    
                     updated += 1
                 else:
                     # Skip existing product
@@ -199,11 +231,20 @@ async def import_products(
                     skipped += 1
             else:
                 # Create new product
+                def get_field(field):
+                    return str(row[field]).strip() if field in row and pd.notna(row[field]) else None
+                
                 new_product = Product(
                     user_id=user.id,
                     item_number=item_number,
                     name=name,
-                    short_description=str(row['short_description']).strip() if 'short_description' in row and pd.notna(row['short_description']) else None
+                    brand=get_field('brand'),
+                    short_description=get_field('short_description'),
+                    category=get_field('category'),
+                    formats=get_field('formats'),
+                    price_range=get_field('price_range'),
+                    certifications=get_field('certifications'),
+                    segments=get_field('segments'),
                 )
                 db.add(new_product)
                 created += 1
@@ -267,4 +308,79 @@ async def export_products(
         }
     )
 
+@router.post("/import/pdf", response_model=ProductImportResult)
+async def import_products_from_pdf(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """
+    Import proucts from a PDF catalog.
+    Automatically extracts tables and product lines from the PDF.
+    The file is NOT stored - processed in memory only.
+    """
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(400, "File must be a PDF")
     
+    contents = await file.read()
+
+    try:
+        from app.services.pdf_catalog_parser import parse_pdf_catalog
+        extracted = parse_pdf_catalog(contents)
+    except Exception as e:
+        raise HTTPException(400, f"Error processing PDF: {str(e)}")
+    
+    if not extracted:
+        raise HTTPException(400, "No products could be extracted from this PDF. Try importing a CSV instead.")
+    
+    created = 0
+    updated = 0
+    skipped = 0
+    errors = []
+
+    for item in extracted:
+        try:
+            item_number = item.get('item_number', '').strip()
+            name = item.get('name', '').strip()
+
+            if not item_number or not name:
+                skipped += 1
+                continue
+            
+            # Check if product already exists
+            existing = db.query(Product).filter(
+                Product.user_id == user.id,
+                Product.item_number == item_number
+            ).first()
+
+            if existing:
+                skipped += 1
+            else:
+                new_product = Product(
+                    user_id=user.id,
+                    item_number=item_number,
+                    name=name,
+                    brand=item.get('brand'),
+                    short_description=item.get('short_description'),
+                    category=item.get('category'),
+                    formats=item.get('formats'),
+                    price_range=item.get('price_range'),
+                    certifications=item.get('certifications'),
+                    segments=item.get('segments'),
+                )
+                db.add(new_product)
+                created += 1
+
+        except Exception as e:
+            errors.append({'item_number': item.get('item_number', 'N/A'), "error": str(e)})
+            skipped += 1
+
+    db.commit()
+
+    return ProductImportResult(
+        total_rows=len(extracted),
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        errors=errors
+    )
