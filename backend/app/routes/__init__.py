@@ -13,6 +13,7 @@ from .campaign_emails import router as campaign_emails_router
 from .email_responses import router as email_responses_router
 from .followups import router as followups_router
 from .companies import router as companies_router
+from .distributor_catalogs import router as distributor_catalogs_router
 from . import email_templates
 
 # Create the main API router
@@ -31,3 +32,4 @@ api_router.include_router(email_responses_router, prefix="/api")
 api_router.include_router(followups_router, prefix="/api")
 api_router.include_router(email_templates.router, prefix="/api")
 api_router.include_router(companies_router)
+api_router.include_router(distributor_catalogs_router)

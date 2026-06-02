@@ -54,6 +54,11 @@ class Company(Base, TimestampMixin):
     # Relationships
     user: Mapped["User"] = relationship(back_populates="companies")
     prospects: Mapped[List["Prospect"]] = relationship(back_populates="company")
+    distributor_catalog: Mapped[Optional["DistributorCatalog"]] = relationship(
+        back_populates="company",
+        uselist=False,
+    )
+    
 
     __table_args__ = (
         Index("ix_companies_user_id_name", "user_id", "name"),
