@@ -76,3 +76,4 @@ export const previewEmail = async (
   );
   return res.data;
 };
+

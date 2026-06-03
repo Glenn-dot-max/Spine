@@ -16,6 +16,7 @@ from app.schemas.email import (
     EmailPreviewResponse,
 )
 from app.api.deps import get_current_user
+from app.services.email_composer import composer
 from app.services.email.email_service import EmailService
 
 router = APIRouter(prefix="/campaigns", tags=["campaign-emails"])
@@ -241,20 +242,23 @@ def send_followup_emails(
         current_user=current_user
     )
 
+# ==================== PREVIEW =====================
 
-# ==================== PREVIEW (POUR TESTER) =====================
-
-@router.get("/{campaign_id}/contacts/{prospect_id}/emails/preview", response_model=EmailPreviewResponse)
+@router.post("/{campaign_id}/contacts/{prospect_id}/emails/preview", response_model=EmailPreviewResponse)
 def preview_email(
     campaign_id: int,
     prospect_id: int,
-    template_name: Optional[str] = None,
-    step: Optional[int] = None,
+    step: int = 0,
+    overrides: Optional[dict] = Body(None, embed=True, description="Blocs overridés par l'user {greeting, company_intro, catalog_pitch, segment_note, samples, cta, signature, subject}"),
+    attachment_names: Optional[List[str]] = Body(None, embed=True, description="Noms des PJ à mentionner dans l'email"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Preview email before sending - utilise le même moteur que l'envoi réel.
+    Preview email avant envoi.
+    Utilise le composer V1 par blocs conditionnels.
+    Accepte des overrides par bloc pour permettre l'édition frontend.
+    Retourne les blocs séparément pour édition + le HTML assemblé.
     """
     campaign = db.query(Campaign).filter(
         Campaign.id == campaign_id,
@@ -265,7 +269,7 @@ def preview_email(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Campaign {campaign_id} not found"
         )
-    
+
     contact = db.query(CampaignContact).filter(
         CampaignContact.campaign_id == campaign_id,
         CampaignContact.prospect_id == prospect_id
@@ -275,55 +279,41 @@ def preview_email(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prospect {prospect_id} is not linked to campaign {campaign_id}"
         )
-    
+
     prospect = db.query(Prospect).filter(
-        Prospect.id == prospect_id).first()
+        Prospect.id == prospect_id
+    ).first()
     if not prospect:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prospect {prospect_id} not found"
         )
-    
+
     try:
-        email_service = EmailService(db)
+        result = composer.compose(
+            prospect=prospect,
+            campaign=campaign,
+            sender=current_user,
+            db=db,
+            step=step,
+            overrides=overrides or {},
+            attachment_names=attachment_names or [],
+        )
 
-        effective_step = step if step is not None else contact.email_sequence_step
-
-        t_name = template_name or email_service._get_template_name(effective_step)
-        template = email_service._load_template(current_user, t_name)
-        context = email_service._build_context(prospect, campaign, current_user)
-
-        if template:
-            from app.services.email.advanced_template_renderer import advanced_renderer
-            subject = advanced_renderer.render(template.subject_template, context)
-            html_body = advanced_renderer.render(template.body_template, context)
-            if "<p>" not in html_body and "<br>" not in html_body:
-                html_body = html_body.replace("\n", "<br>")
-        else:
-            subject = email_service._get_fallback_subject(campaign.name, effective_step)
-            html_body = email_service._get_fallback_body(
-                prospect.first_name,
-                campaign.name,
-                campaign.location or "our event",
-                current_user.first_name or "Sales",
-                current_user.last_name or "Team",
-                effective_step
-            )
-        
         return EmailPreviewResponse(
-            subject=subject,
-            html_body=html_body,
+            subject=result["subject"] or f"Re: {campaign.name}",
+            html_body=result["html_body"],
             to_email=prospect.email,
             prospect_name=f"{prospect.first_name} {prospect.last_name}",
-            template_used=t_name,
-            variables_used={
-                "first_name": prospect.first_name,
-                "last_name": prospect.last_name,
-                "campaign_name": campaign.name,
-                "campaign_location": campaign.location,
-            }
+            template_used="composer_v1",
+            variables_used=result["blocks"],
         )
-    
+
+    except NotImplementedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

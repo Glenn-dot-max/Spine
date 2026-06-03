@@ -1,175 +1,349 @@
 """
 SPINE V1 — email_composer
 =========================
-Rôle : Moteur de composition d'emails dynamiques par blocs.
-       Assemble salutation, intro, produits, CTA selon contexte prospect + campagne.
-Dépendances : app.models (Prospect, Company, ProspectProduct, Campaign, Product)
+Rôle : Moteur de composition d'emails post-campagne par blocs conditionnels.
+       Chaque bloc est généré automatiquement ou overridé par l'user.
+       Retourne les blocs séparément pour permettre l'édition frontend bloc par bloc.
+
+Architecture des blocs (dans l'ordre) :
+  1. greeting          → contextuel selon campaign_source + nom prospect
+  2. company_intro     → bloc présentation société (campaign.company_intro_text ou généré)
+  3. catalog_pitch     → produits détectés OU présentation catalogue générale
+  4. segment_note      → note spécifique si type_structure du prospect renseigné
+  5. samples           → bloc samples seulement si campaign.offer_samples = True
+  6. attachments       → mention PJ seulement si attachments passés
+  7. cta               → 1 seul CTA clair, adapté au step de séquence
+  8. signature         → sender
+
+Séquence :
+  step 0 = J0 (initial post-salon)
+  step 1 = J+5 (follow-up 1)
+  step 2 = J+14 (follow-up 2 — final)
+
+Sources actives :
+  trade_show  → ✅ Actif V1 Sprint 4
+  ride_along  → 🔒 Coming soon
+  outreach    → 🔒 Coming soon
+
+Dépendances : app.models (Prospect, Company, Campaign, Product, User)
 Utilisé par : routes/campaign_emails.py (preview + send)
-Sécurité : user_id filtré via prospect.user_id; pas de PII en logs.
-À faire : templates multi-langue (EN/FR); raffinement CTA par segment.
-Dernière modification : 2026-06-03 — architecture initiale blocs dynamiques.
+Sécurité : pas de PII dans les logs; user_id filtré en amont.
+À faire : ride_along + outreach sources; multi-langue EN/FR; AI improve par bloc.
+Dernière modification : 2026-06-03 — refonte complète V1 blocs conditionnels.
 """
+
 from typing import Optional, Dict, List
 from sqlalchemy.orm import Session
-from app.models.prospect import Prospect, ProspectCanal
-from app.models.company import StructureType
-from app.models.campaign import Campaign
+
+from app.models.prospect import Prospect
+from app.models.company import Company, StructureType
+from app.models.campaign import Campaign, CampaignSource
 from app.models.user import User
 
 
 class EmailComposer:
-    """Compose des emails personnalisés par blocs dynamiques."""
+    """
+    Compose des emails post-campagne personnalisés par blocs conditionnels.
+
+    Usage :
+        result = EmailComposer.compose(
+            prospect=prospect,
+            campaign=campaign,
+            sender=current_user,
+            db=db,
+            step=0,
+            overrides={"company_intro": "Texte custom...", "cta": "..."}
+        )
+
+    Retourne un dict avec :
+        - blocks  : chaque bloc de texte séparé (pour édition frontend)
+        - subject : sujet de l'email
+        - html_body : email HTML assemblé
+        - text_body : email texte plain
+        - preview_text : premier paragraphe pour aperçu
+    """
 
     # ─────────────────────────────────────────────
-    # BLOCS — SALUTATION
-    # ─────────────────────────────────────────────
-
-    @staticmethod
-    def greeting_block(canal: Optional[ProspectCanal], prospect_first_name: str) -> str:
-        """Retourne la salutation contextuelle selon le canal marketing."""
-        greeting = f"Hi {prospect_first_name},"
-
-        if canal == ProspectCanal.trade_show:
-            return f"{greeting}\n\nIt was great meeting you at the show!"
-        elif canal == ProspectCanal.linkedin:
-            return f"{greeting}\n\nI came across your profile and thought we should connect."
-        elif canal == ProspectCanal.referral:
-            return f"{greeting}\n\nA colleague highly recommended we connect."
-        elif canal == ProspectCanal.emailing:
-            return f"{greeting}\n\nI wanted to reach out about an opportunity."
-        elif canal == ProspectCanal.inbound:
-            return f"{greeting}\n\nThanks for reaching out!"
-        else:
-            return greeting
-
-    # ─────────────────────────────────────────────
-    # BLOCS — INTRO MÉTIER
+    # BLOC 1 — GREETING
     # ─────────────────────────────────────────────
 
     @staticmethod
-    def structure_intro_block(
-        structure_type: Optional[StructureType],
-        company_name: str,
+    def _greeting_block(
+        campaign_source: CampaignSource,
+        campaign_name: str,
+        first_name: str,
+        step: int,
     ) -> str:
-        """Intro contextuelle selon le type de structure client."""
-        if structure_type == StructureType.industry:
-            return (
-                f"For your industrial operation at {company_name}, "
-                "we specialize in bulk formats, private label solutions, "
-                "and operational efficiency at scale."
-            )
-        elif structure_type == StructureType.foodservice:
-            return (
-                f"For your multi-unit foodservice operation, {company_name} can benefit from our "
-                "product range designed for high-volume, consistent quality, "
-                "and cost optimization across locations."
-            )
-        elif structure_type == StructureType.retail:
-            return (
-                f"For your retail operation, we offer premium product positioning, "
-                f"attractive margins, and proven shelf performance to drive "
-                f"category growth at {company_name}."
-            )
-        else:
-            return f"We work with operations like {company_name} to drive growth and efficiency."
-
-    # ─────────────────────────────────────────────
-    # BLOCS — PRODUITS
-    # ─────────────────────────────────────────────
-
-    @staticmethod
-    def product_pitch_block(
-        product_names: List[str],
-        structure_type: Optional[StructureType],
-    ) -> str:
-        """Pitch produit personnalisé selon intérêts du prospect et sa structure."""
-        if not product_names:
-            return (
-                "Whether you're looking to expand your product line or optimize existing SKUs, "
-                "we have solutions tailored to your operation."
-            )
-
-        product_list = ", ".join(product_names)
-
-        if structure_type == StructureType.industry:
-            return (
-                f"Our {product_list} line offers exceptional quality, "
-                "compliance, and scalability for industrial-scale operations. "
-                "We support private labeling and custom formats."
-            )
-        elif structure_type == StructureType.foodservice:
-            return (
-                f"Our {product_list} line is designed for high-volume foodservice: "
-                "consistent quality, convenient formats, and competitive pricing. "
-                "Available in bulk and case quantities."
-            )
-        elif structure_type == StructureType.retail:
-            return (
-                f"Our {product_list} line offers premium positioning for your shelves, "
-                "strong margin potential, and proven consumer appeal. "
-                "We handle marketing support and promotional opportunities."
-            )
-        else:
-            return f"Our {product_list} line could be a strong fit for your operation."
-
-    # ─────────────────────────────────────────────
-    # BLOCS — APPEL À L'ACTION
-    # ─────────────────────────────────────────────
-
-    @staticmethod
-    def call_to_action_block(
-        canal: Optional[ProspectCanal],
-        email_sequence_step: int,
-        company_name: str,
-    ) -> str:
-        """CTA contextuelle selon le canal et le step de séquence."""
-        # J0 — initial
-        if email_sequence_step == 0:
-            if canal == ProspectCanal.trade_show:
+        """Salutation contextuelle selon la source de campagne et le step."""
+        if step == 0:
+            if campaign_source == CampaignSource.trade_show:
                 return (
-                    f"Would you be open to a quick call next week to discuss how we can support {company_name}? "
-                    "I'm happy to work around your schedule."
+                    f"Hi {first_name},\n\n"
+                    f"It was great meeting you at {campaign_name}! "
+                    "I wanted to follow up and share a bit more about what we do."
                 )
-            elif canal == ProspectCanal.linkedin:
-                return (
-                    "I'd love to schedule a brief call to learn more about your needs and "
-                    "share how we can help. Are you available this week?"
-                )
+            # Prêt pour plus tard
+            elif campaign_source == CampaignSource.ride_along:
+                return f"Hi {first_name},\n\nThank you for your time during our visit."
             else:
-                return (
-                    "Would a quick call work for you next week to explore this opportunity? "
-                    "Let me know what works best."
-                )
+                return f"Hi {first_name},\n\nI wanted to reach out and introduce myself."
 
-        # J+5 — relance 1
-        elif email_sequence_step == 1:
+        elif step == 1:
             return (
-                "I'm including a detailed product sheet and would love to send a sample your way. "
-                "When would be a good time to follow up?"
+                f"Hi {first_name},\n\n"
+                "I wanted to follow up on my previous email — "
+                "I hope you had a chance to review what I sent."
             )
-
-        # J+14 — relance 2 (dernière chance)
-        elif email_sequence_step == 2:
-            return (
-                "This is my final note — I'd hate to miss the opportunity to work with you. "
-                "Are you still interested in learning more? "
-                "Reply directly or call me if you'd like to discuss."
-            )
-
         else:
-            return "Looking forward to connecting!"
+            # step 2 — final
+            return (
+                f"Hi {first_name},\n\n"
+                "I know things get busy — this is my last follow-up, "
+                "I just didn't want to miss the opportunity to connect."
+            )
 
     # ─────────────────────────────────────────────
-    # BLOCS — SIGNATURE
+    # BLOC 2 — COMPANY INTRO
     # ─────────────────────────────────────────────
 
     @staticmethod
-    def signature_block(sender: User) -> str:
-        """Signature email du sender."""
-        return f"Best regards,\n{sender.first_name} {sender.last_name}\n{sender.email}"
+    def _company_intro_block(
+        company_intro_text: Optional[str],
+    ) -> Optional[str]:
+        """
+        Présentation société/activité.
+        Si l'user a renseigné company_intro_text → utiliser ça.
+        Sinon → None (le bloc est omis).
+        """
+        if company_intro_text and company_intro_text.strip():
+            return company_intro_text.strip()
+        return None
 
     # ─────────────────────────────────────────────
-    # COMPOSITION — MAIN
+    # BLOC 3 — CATALOG PITCH
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _catalog_pitch_block(
+        catalog_pitch_text: Optional[str],
+        product_names: List[str],
+        has_attachment: bool,
+    ) -> str:
+        """
+        Présentation catalogue ou produits.
+        Priorité :
+          1. catalog_pitch_text (custom user) → utiliser tel quel
+          2. product_names détectés → lister les produits
+          3. Fallback générique → "please find our catalogue attached"
+        """
+        # 1. Custom user
+        if catalog_pitch_text and catalog_pitch_text.strip():
+            return catalog_pitch_text.strip()
+
+        # 2. Produits détectés depuis l'import
+        if product_names:
+            product_list = ", ".join(product_names)
+            return (
+                f"Based on your interests, I wanted to highlight "
+                f"our {product_list} — I think these could be a strong fit for your operation."
+            )
+
+        # 3. Fallback générique
+        if has_attachment:
+            return (
+                "Please find attached our product catalogue — "
+                "you'll find our full range of references along with pricing information."
+            )
+        return (
+            "I'd love to share our product catalogue with you, "
+            "which covers our full range of references. "
+            "Just let me know and I'll send it right over."
+        )
+
+    # ─────────────────────────────────────────────
+    # BLOC 4 — SEGMENT NOTE
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _segment_note_block(
+        campaign: Campaign,
+        structure_type: Optional[StructureType],
+    ) -> Optional[str]:
+        """
+        Note spécifique au segment du prospect.
+        Injecte segment_note_global toujours si renseignée.
+        Injecte segment_note_XXX si type_structure match.
+        """
+        parts = []
+
+        # Note spécifique au type de structure
+        if structure_type == StructureType.foodservice and campaign.segment_note_restaurant:
+            parts.append(campaign.segment_note_restaurant.strip())
+        elif structure_type == StructureType.industry and campaign.segment_note_industry:
+            parts.append(campaign.segment_note_industry.strip())
+        elif structure_type == StructureType.retail and campaign.segment_note_retail:
+            parts.append(campaign.segment_note_retail.strip())
+
+        # Note globale (toujours ajoutée si renseignée)
+        if campaign.segment_note_global:
+            parts.append(campaign.segment_note_global.strip())
+
+        return "\n\n".join(parts) if parts else None
+
+    # ─────────────────────────────────────────────
+    # BLOC 5 — SAMPLES
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _samples_block(
+        offer_samples: bool,
+        samples_note: Optional[str],
+    ) -> Optional[str]:
+        """
+        Bloc samples — présent UNIQUEMENT si offer_samples = True.
+        samples_note contient l'adresse ou les modalités.
+        """
+        if not offer_samples:
+            return None
+
+        if samples_note and samples_note.strip():
+            return (
+                f"I'd also love to send you some samples so you can see the quality firsthand — "
+                f"{samples_note.strip()}"
+            )
+        return (
+            "I'd be happy to send you some product samples so you can experience "
+            "the quality directly. Just send me your shipping address and I'll get those out to you."
+        )
+
+    # ─────────────────────────────────────────────
+    # BLOC 6 — ATTACHMENTS MENTION
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _attachments_block(attachment_names: List[str]) -> Optional[str]:
+        """
+        Mention des pièces jointes — présent UNIQUEMENT si attachments passés.
+        """
+        if not attachment_names:
+            return None
+        names = ", ".join(attachment_names)
+        return f"📎 Attached for your reference: {names}"
+
+    # ─────────────────────────────────────────────
+    # BLOC 7 — CTA
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _cta_block(step: int, offer_samples: bool) -> str:
+        """
+        Un seul CTA clair par email.
+        step 0 : invitation à un appel
+        step 1 : relance + samples si activé
+        step 2 : dernière chance
+        """
+        if step == 0:
+            return (
+                "Would you be open to a quick call next week? "
+                "I'm happy to work around your schedule."
+            )
+        elif step == 1:
+            if offer_samples:
+                return (
+                    "Would you like me to send over some samples along with our full catalogue? "
+                    "Just reply with your shipping address."
+                )
+            return (
+                "I'd love to set up a quick call to go over the details — "
+                "when would work for you?"
+            )
+        else:
+            # step 2 — final
+            return (
+                "If you're interested, I'm one reply away. "
+                "If now isn't the right time, no worries — "
+                "I'll make sure to follow up again next season."
+            )
+
+    # ─────────────────────────────────────────────
+    # BLOC 8 — SIGNATURE
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _signature_block(sender: User) -> str:
+        """Signature de l'expéditeur."""
+        name = f"{sender.first_name} {sender.last_name}".strip() or sender.email
+        return f"Best regards,\n{name}\n{sender.email}"
+
+    # ─────────────────────────────────────────────
+    # SUJET EMAIL
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _subject(
+        campaign: Campaign,
+        prospect_first_name: str,
+        step: int,
+    ) -> Optional[str]:
+        """
+        Sujet de l'email.
+
+        step 0 = sujet initial, customisable par l'user.
+        step 1+ = None → le threading email sender gère le Re: automatiquement
+                  en utilisant email_thread_id + email_message_id du CampaignContact.
+
+        L'user peut toujours override via overrides['subject'] pour n'importe quel step.
+        """
+        if step == 0:
+            return f"Great meeting you at {campaign.name}, {prospect_first_name}"
+        return None
+
+    # ─────────────────────────────────────────────
+    # ASSEMBLAGE HTML
+    # ─────────────────────────────────────────────
+
+    @staticmethod
+    def _assemble_html(blocks: Dict[str, Optional[str]]) -> str:
+        """Assemble les blocs en HTML propre."""
+        paragraphs = []
+        # Ordre fixe des blocs
+        order = [
+            "greeting",
+            "company_intro",
+            "catalog_pitch",
+            "segment_note",
+            "samples",
+            "attachments",
+            "cta",
+            "signature",
+        ]
+        for key in order:
+            text = blocks.get(key)
+            if text:
+                formatted = text.replace("\n", "<br>")
+                paragraphs.append(f"<p>{formatted}</p>")
+
+        body = "\n    ".join(paragraphs)
+        return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    {body}
+</body>
+</html>"""
+
+    @staticmethod
+    def _assemble_text(blocks: Dict[str, Optional[str]]) -> str:
+        """Assemble les blocs en texte plain."""
+        order = [
+            "greeting", "company_intro", "catalog_pitch",
+            "segment_note", "samples", "attachments", "cta", "signature",
+        ]
+        parts = [blocks[k] for k in order if blocks.get(k)]
+        return "\n\n".join(parts)
+
+    # ─────────────────────────────────────────────
+    # COMPOSE — POINT D'ENTRÉE PRINCIPAL
     # ─────────────────────────────────────────────
 
     @staticmethod
@@ -178,31 +352,51 @@ class EmailComposer:
         campaign: Campaign,
         sender: User,
         db: Session,
-        email_sequence_step: int = 0,
-    ) -> Dict[str, str]:
+        step: int = 0,
+        overrides: Optional[Dict[str, str]] = None,
+        attachment_names: Optional[List[str]] = None,
+    ) -> Dict:
         """
         Compose un email complet pour un prospect dans une campagne.
 
         Args:
-            prospect           : Prospect ORM object (avec product_interests chargés)
-            campaign           : Campaign ORM object
-            sender             : User ORM object (expéditeur)
-            db                 : Session SQLAlchemy
-            email_sequence_step: 0=initial, 1=follow-up 1, 2=follow-up 2
+            prospect         : Prospect ORM (avec company + product_interests chargés)
+            campaign         : Campaign ORM
+            sender           : User ORM (expéditeur)
+            db               : Session SQLAlchemy
+            step             : 0=J0, 1=J+5, 2=J+14
+            overrides        : dict de blocs overridés par l'user {bloc_name: texte}
+            attachment_names : liste des noms de PJ à mentionner dans l'email
 
         Returns:
-            dict avec subject, html_body, text_body, preview_text
-        """
-        # Résoudre company
-        company = prospect.company
-        if company:
-            company_name = company.name
-            structure_type = company.type_structure
-        else:
-            company_name = prospect.company_name or "your operation"
-            structure_type = None
+            {
+                "subject"      : str,
+                "html_body"    : str,
+                "text_body"    : str,
+                "preview_text" : str,
+                "blocks"       : dict (blocs éditables séparément)
+            }
 
-        # Résoudre les produits d'intérêt
+        Raises:
+            NotImplementedError si campaign_source != trade_show
+        """
+        if overrides is None:
+            overrides = {}
+        if attachment_names is None:
+            attachment_names = []
+
+        # Vérif source active
+        if campaign.campaign_source != CampaignSource.trade_show:
+            raise NotImplementedError(
+                f"Campaign source '{campaign.campaign_source}' is not yet supported. "
+                "Only 'trade_show' is active in V1 Sprint 4."
+            )
+
+        # Résoudre company + structure_type
+        company: Optional[Company] = prospect.company
+        structure_type: Optional[StructureType] = company.type_structure if company else None
+
+        # Résoudre produits d'intérêt
         product_names: List[str] = []
         if prospect.product_interests:
             from app.models.product import Product
@@ -212,42 +406,50 @@ class EmailComposer:
                     if prod:
                         product_names.append(prod.name)
 
-        # Assembler les blocs
-        greeting = EmailComposer.greeting_block(prospect.canal, prospect.first_name)
-        intro    = EmailComposer.structure_intro_block(structure_type, company_name)
-        pitch    = EmailComposer.product_pitch_block(product_names, structure_type)
-        cta      = EmailComposer.call_to_action_block(prospect.canal, email_sequence_step, company_name)
-        sig      = EmailComposer.signature_block(sender)
+        has_attachment = len(attachment_names) > 0
 
-        # HTML body
-        html_body = f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"></head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <p>{greeting.replace(chr(10), '<br>')}</p>
-    <p>{intro}</p>
-    <p>{pitch}</p>
-    <p>{cta}</p>
-    <p>{sig.replace(chr(10), '<br>')}</p>
-</body>
-</html>"""
-
-        # Text body (fallback sans HTML)
-        text_body = f"{greeting}\n\n{intro}\n\n{pitch}\n\n{cta}\n\n{sig}"
-
-        # Subject selon step
-        step_subjects = {
-            0: f"Connecting from {campaign.name} — {prospect.first_name}",
-            1: f"Quick follow-up from {campaign.name}",
-            2: f"Final note from {campaign.name}",
+        # Générer chaque bloc (override utilisateur prioritaire)
+        blocks: Dict[str, Optional[str]] = {
+            "greeting": overrides.get("greeting") or EmailComposer._greeting_block(
+                campaign.campaign_source, campaign.name, prospect.first_name, step
+            ),
+            "company_intro": overrides.get("company_intro") or EmailComposer._company_intro_block(
+                campaign.company_intro_text
+            ),
+            "catalog_pitch": overrides.get("catalog_pitch") or EmailComposer._catalog_pitch_block(
+                campaign.catalog_pitch_text, product_names, has_attachment
+            ),
+            "segment_note": overrides.get("segment_note") or EmailComposer._segment_note_block(
+                campaign, structure_type
+            ),
+            "samples": overrides.get("samples") or EmailComposer._samples_block(
+                campaign.offer_samples, campaign.samples_note
+            ),
+            "attachments": overrides.get("attachments") or EmailComposer._attachments_block(
+                attachment_names
+            ),
+            "cta": overrides.get("cta") or EmailComposer._cta_block(
+                step, campaign.offer_samples
+            ),
+            "signature": overrides.get("signature") or EmailComposer._signature_block(sender),
         }
-        subject = step_subjects.get(email_sequence_step, f"Follow-up from {campaign.name}")
+
+        subject = overrides.get("subject") or EmailComposer._subject(
+            campaign, prospect.first_name, step
+        )
+        # subject = None pour step 1+ → signal à la route d'utiliser le thread existant (Re:)
+
+        html_body = EmailComposer._assemble_html(blocks)
+        text_body = EmailComposer._assemble_text(blocks)
+        preview_text = (blocks.get("company_intro") or blocks.get("catalog_pitch") or "")[:100]
 
         return {
-            "subject": subject,
-            "html_body": html_body.strip(),
-            "text_body": text_body.strip(),
-            "preview_text": intro[:80] + "...",
+            "subject": subject,             # None pour follow-ups → threading géré par sender
+            "html_body": html_body,
+            "text_body": text_body,
+            "preview_text": preview_text,
+            "blocks": blocks,               # Blocs éditables séparément dans le frontend
+            "attachment_names": attachment_names,  # Liste PJ passée telle quelle à la route d'envoi
         }
 
 

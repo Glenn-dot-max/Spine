@@ -16,9 +16,33 @@ export interface Campaign {
   distributor_name?: string;
   description?: string;
   status: "upcoming" | "active" | "completed";
+
+  // Source
+  campaign_source: "trade_show" | "ride_along" | "outreach";
+
+  // Distributor context
+  is_distributor_show: boolean;
+  distributor_company_id?: number;
+  auto_cc_sales_rep: boolean;
+
+  // Content blocks
+  company_intro_text?: string;
+  catalog_pitch_text?: string;
+  offer_samples: boolean;
+  samples_note?: string;
+
+  // Segment notes
+  segment_note_global?: string;
+  segment_note_restaurant?: string;
+  segment_note_industry?: string;
+  segment_note_retail?: string;
+
+  // Sequence
   followup_delay_1: number;
   followup_delay_2: number;
   followup_delay_3: number;
+
+  // Computed
   contact_count: number;
   product_count: number;
 }

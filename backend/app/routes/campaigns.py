@@ -64,20 +64,34 @@ def create_campaign(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    payload = campaign_data.model_dump(exclude_unset=True)
 
-    # Create the campaign object
+    # Filter out Swagger auto-fill defaults if not explicitly set
+    swagger_defaults = {"string": True, 0: True, False: True}
+    for key in list(payload.keys()):
+        val = payload[key]
+        if val in swagger_defaults and key not in campaign_data.model_fields_set:
+            del payload[key]
+
+    raw_status = payload.pop("status", None) or TradeShowStatus.UPCOMING.value
+    try:
+        status_enum = TradeShowStatus(raw_status)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status. Must be one of: {[s.value for s in TradeShowStatus]}"
+        )
+    
+    # Clean up FK fields: convert 0 to None (Swagger auto-fills with 0)
+    fk_fields = ["distributor_company_id", "template_initial_id", "template_followup_1_id", "template_followup_2_id", "template_followup_3_id"]
+    for fk_field in fk_fields:
+        if fk_field in payload and payload[fk_field] == 0:
+            payload[fk_field] = None
+    
     new_campaign = Campaign(
         user_id=current_user.id,
-        name=campaign_data.name,
-        event_date=campaign_data.event_date,
-        end_date=campaign_data.end_date,
-        location=campaign_data.location,
-        distributor_name=campaign_data.distributor_name,
-        description=campaign_data.description,
-        status=campaign_data.status or TradeShowStatus.UPCOMING,
-        followup_delay_1=campaign_data.followup_delay_1 or 7,
-        followup_delay_2=campaign_data.followup_delay_2 or 14,
-        followup_delay_3=campaign_data.followup_delay_3 or 21,
+        status=status_enum,
+        **payload
     )
 
     db.add(new_campaign)
@@ -124,6 +138,29 @@ def update_campaign(
     
     # Update only provided fields
     update_data = campaign_data.model_dump(exclude_unset=True)
+
+    # Filter out Swagger auto-fill defaults if not explicitly set
+    swagger_defaults = {"string": True, 0: True, False: True}
+    for key in list(update_data.keys()):
+        val = update_data[key]
+        if val in swagger_defaults and key not in campaign_data.model_fields_set:
+            del update_data[key]
+
+    # Clean up FK fields: convert 0 to None (Swagger auto-fills with 0)
+    fk_fields = ["distributor_company_id", "template_initial_id", "template_followup_1_id", "template_followup_2_id", "template_followup_3_id"]
+    for fk_field in fk_fields:
+        if fk_field in update_data and update_data[fk_field] == 0:
+            update_data[fk_field] = None
+
+    if "status" in update_data and update_data["status"] is not None:
+        try:
+            update_data["status"] = TradeShowStatus(update_data["status"])
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Must be one of: {[s.value for s in TradeShowStatus]}"
+            )
+
     for field, value in update_data.items():
         setattr(campaign, field, value)
     
