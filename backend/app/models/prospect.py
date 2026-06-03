@@ -3,10 +3,10 @@ SPINE V1 - prospect model
 ==========================
 Rôle: Modèle SQLAlchemy pour les prospects/leads dans le CRM.
 Dépendances: app.models.base, app.models.company
-Utilisé par: routes/prospects.py, services/email/email_service.py, routes/campaigns.py
-Sécurité: Unique Constraint sur (email, user_id) - multi-tenant safe. user_id obligatoire sur toutes les requêtes.
-A faire : ajouter status oven/fridge/trash/converted (tâche 8)
-Denière modificaton : 2026 - 05 - 2025 - UniqueConstraint email+user_id (fix multi-tenant) 
+Utilisé par: routes/prospects.py, routes/prospect_import.py, services email/campaign
+Sécurité: Unique Constraint sur (email, user_id) - multi-tenant; user_id obligatoire sur toutes les requêtes applicatives.
+A faire : exploiter `canal`et `canal_detail`dans le campaign builder + email composer.
+Denière modificaton : 2026 - 06 - 03 - ajout enum ProspectCanal + colonnes canal/canal_detail
 """
 from sqlalchemy import String, Text, Enum, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,6 +27,14 @@ class ProspectSource(str, enum.Enum):
     inbound = "inbound"
     other = "other"
 
+class ProspectCanal(str, enum.Enum):
+    """Marketing/ outreach canal user to approach or capture the lead."""
+    trade_show = "trade_show"
+    linkedin = "linkedin"
+    referral = "referral"
+    emailing = "emailing"
+    inbound = "inbound"
+    other = "other"
 class ProspectStatus(str, enum.Enum):
     """Current status of the prospect."""
     new = "new"                 # Jamais contacté
@@ -44,6 +52,7 @@ class Prospect(Base, TimestampMixin):
         UniqueConstraint('email', 'user_id', name='uq_prospects_email_user'),
         Index('ix_prospects_user_status', 'user_id', 'status'),
         Index('ix_prospects_user_source', 'user_id', 'source'),
+        Index('ix_prospects_user_market', 'user_id', 'canal'),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -76,6 +85,14 @@ class Prospect(Base, TimestampMixin):
     source: Mapped[ProspectSource] = mapped_column(Enum(ProspectSource), nullable=False)
     source_notes: Mapped[Optional[str]] = mapped_column(Text)
     source_detail: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Sprint 4 - canal context for campaign personalization
+    canal: Mapped[Optional[ProspectCanal]] = mapped_column(
+        Enum(ProspectCanal),
+        nullable=True
+    )
+    canal_detail: Mapped[Optional[str]] = mapped_column(String(255))
+    
     status: Mapped[ProspectStatus] = mapped_column(
         Enum(ProspectStatus),
         nullable=False,

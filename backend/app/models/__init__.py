@@ -4,7 +4,7 @@ SQLAlchemy models for Spine CRM.
 from .base import Base
 from .user import User
 from .product import Product
-from .prospect import Prospect, ProspectSource, ProspectStatus
+from .prospect import Prospect, ProspectSource, ProspectStatus, ProspectCanal
 from .prospect_product import ProspectProduct
 from .campaign import Campaign, CampaignContact, CampaignProduct
 from .email_template import EmailTemplate
@@ -19,6 +19,7 @@ __all__ = [
     "Prospect",
     "ProspectSource",
     "ProspectStatus",
+    "ProspectCanal",
     "ProspectProduct",
     "Campaign",             
     "CampaignContact",      
