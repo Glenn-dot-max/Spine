@@ -52,6 +52,12 @@ function Navbar() {
                 🏢 Companies
               </Link>
               <Link
+                to="/catalogue"
+                className={`px-2 py-2 ${isActive("/catalogue")}`}
+              >
+                📦 Catalogue
+              </Link>
+              <Link
                 to="/settings"
                 className={`px-2 py-2 ${isActive("/settings")}`}
               >

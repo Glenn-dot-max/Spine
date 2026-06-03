@@ -32,7 +32,12 @@ function Companies() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    await createCompany(form);
+    await createCompany({
+      ...form,
+      type_structure: (form.type_structure ||
+        undefined) as Company["type_structure"],
+      type_contact: (form.type_contact || undefined) as Company["type_contact"],
+    });
     setShowForm(false);
     setForm({
       name: "",
@@ -121,11 +126,10 @@ function Companies() {
                 className="w-full border rounded px-3 py-2 text-sm"
               >
                 <option value="">Select</option>
-                <option value="Retail">Retail</option>
-                <option value="Foodservice">Foodservice</option>
-                <option value="Industry">Industry</option>
-                <option value="Distribution">Distribution</option>
-                <option value="Other">Other</option>
+                <option value="retail">Retail</option>
+                <option value="foodservice">Foodservice</option>
+                <option value="industry">Industry</option>
+                <option value="other">Other</option>
               </select>
             </div>
             <div>

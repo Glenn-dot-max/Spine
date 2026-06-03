@@ -50,13 +50,6 @@ export interface CampaignContact {
   notes?: string;
 }
 
-export interface Product {
-  id: number;
-  item_number: string;
-  name: string;
-  short_description?: string;
-}
-
 export interface Company {
   id: number;
   user_id: number;
@@ -74,4 +67,39 @@ export interface Company {
     | "other";
   created_at: string;
   updated_at: string;
+}
+
+export interface Product {
+  id: number;
+  item_number: string;
+  name: string;
+  brand?: string;
+  short_description?: string;
+  category?: string;
+  formats?: string;
+  price_range?: string;
+  certifications?: string;
+  segment?: string;
+  is_active: boolean;
+}
+
+export interface DistributorCatalogItem {
+  id: number;
+  catalog_id: number;
+  product_id: number;
+  notes?: string;
+  is_active: boolean;
+  product_name?: string;
+  product_item_number?: string;
+  product_brand?: string;
+  product_category?: string;
+}
+
+export interface DistributorCatalog {
+  id: number;
+  company_id: number;
+  name: string;
+  notes?: string;
+  item_count?: number;
+  items?: DistributorCatalogItem[];
 }

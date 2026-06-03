@@ -13,6 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Navbar from "./components/Navbar";
 import Templates from "./pages/Templates";
 import Companies from "./pages/Companies";
+import Catalogue from "./pages/Catalogue";
 import type React from "react";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -43,6 +44,7 @@ function App() {
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/templates" element={<Templates />} />
                     <Route path="/companies" element={<Companies />} />
+                    <Route path="/catalogue" element={<Catalogue />} />
                   </Routes>
                 </div>
               </div>
