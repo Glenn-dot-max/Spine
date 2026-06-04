@@ -32,6 +32,9 @@ function CampaignDetail() {
     id: number;
     name: string;
   } | null>(null);
+  const [previewAttachmentNames, setPreviewAttachmentNames] = useState<
+    string[]
+  >([]);
 
   useEffect(() => {
     fetchAll();
@@ -234,9 +237,31 @@ function CampaignDetail() {
 
       {/* Contacts Table */}
       <div className="bg-white border rounded-lg p-5 shadow-sm">
-        <h3 className="font-semibold text-gray-800 mb-3">
-          Contacts ({contacts.length})
-        </h3>
+        <div className="flex justify-between items-start mb-4">
+          <h3 className="font-semibold text-gray-800">
+            Contacts ({contacts.length})
+          </h3>
+          <div className="w-72">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              📎 Attachment names for preview
+              <span className="ml-1 text-gray-400">(comma-separated)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="ex: catalogue_2026.pdf, price_list.pdf"
+              className="w-full border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) =>
+                setPreviewAttachmentNames(
+                  e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                )
+              }
+            />
+          </div>
+        </div>
+
         {contacts.length === 0 ? (
           <p className="text-sm text-gray-400">No contacts yet</p>
         ) : (
@@ -357,6 +382,7 @@ function CampaignDetail() {
           campaignId={campaignId}
           prospectId={previewingContact.id}
           prospectName={previewingContact.name}
+          attachmentNames={previewAttachmentNames}
           onClose={() => setPreviewingContact(null)}
         />
       )}

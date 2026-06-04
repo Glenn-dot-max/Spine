@@ -77,3 +77,25 @@ export const previewEmail = async (
   return res.data;
 };
 
+export const previewEmailWithOverrides = async (
+  campaignId: number,
+  prospectId: number,
+  step: number,
+  overrides: Record<string, string>,
+  attachmentNames: string[],
+): Promise<{
+  subject: string;
+  html_body: string;
+  to_email: string;
+  prospect_name: string;
+  variables_used: Record<string, string | null>;
+}> => {
+  const res = await api.post(
+    `/api/campaigns/${campaignId}/contacts/${prospectId}/emails/preview?step=${step}`,
+    {
+      overrides,
+      attachment_names: attachmentNames,
+    },
+  );
+  return res.data;
+};

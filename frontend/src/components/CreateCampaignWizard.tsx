@@ -8,9 +8,21 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createCampaign } from "../api/campaigns";
+import api from "../api/client";
+import EmailPreviewModal from "./EmailPreviewModal";
 
 type WizardProps = {
   onClose: () => void;
+};
+
+type ImportPreviewRow = {
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  company_name?: string;
+  position?: string;
+  _already_exists?: boolean;
+  [key: string]: unknown;
 };
 
 const STEPS = [
@@ -18,7 +30,10 @@ const STEPS = [
   "Distributor",
   "Catalogue",
   "Your message",
+  "Import leads",
+  "Attachments",
   "Review & Create",
+  "Preview emails",
 ];
 
 const emptyForm = {
@@ -56,9 +71,58 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [leadsFile, setLeadsFile] = useState<File | null>(null);
+  const [leadsPreview, setLeadsPreview] = useState<{
+    imported: number;
+    skipped: number;
+  } | null>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [createdCampaignId, setCreatedCampaignId] = useState<number | null>(
+    null,
+  );
+  const [importResults, setImportResults] = useState<
+    { id: number; name: string }[]
+  >([]);
+  const [previewingProspect, setPreviewingProspect] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
+  const [importPreviewLoading, setImportPreviewLoading] = useState(false);
+  const [importPreviewError, setImportPreviewError] = useState("");
+  const [importPreviewWarnings, setImportPreviewWarnings] = useState<string[]>(
+    [],
+  );
+  const [importPreviewRows, setImportPreviewRows] = useState<
+    ImportPreviewRow[]
+  >([]);
+  const [importPreviewTotalRows, setImportPreviewTotalRows] = useState(0);
 
   const set = (field: string, value: unknown) =>
     setForm((f) => ({ ...f, [field]: value }));
+
+  const loadLeadsFilePreview = async (file: File) => {
+    setImportPreviewLoading(true);
+    setImportPreviewError("");
+    setImportPreviewWarnings([]);
+    setImportPreviewRows([]);
+    setImportPreviewTotalRows(0);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await api.post("/api/prospects/import/preview", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setImportPreviewWarnings(res.data.warnings ?? []);
+      setImportPreviewRows(res.data.sample_data ?? []);
+      setImportPreviewTotalRows(res.data.total_rows ?? 0);
+    } catch {
+      setImportPreviewError(
+        "Impossible d'analyser ce fichier. Vérifie que les colonnes email, first_name et last_name sont présentes.",
+      );
+    } finally {
+      setImportPreviewLoading(false);
+    }
+  };
 
   const handleCreate = async () => {
     setLoading(true);
@@ -94,8 +158,46 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
         payload.segment_note_retail = form.segment_note_retail;
 
       const created = await createCampaign(payload);
-      navigate(`/campaigns/${created.id}`);
-    } catch (e) {
+      setCreatedCampaignId(created.id);
+
+      // Import leads si fichier sélectionné
+      if (leadsFile) {
+        const formData = new FormData();
+        formData.append("file", leadsFile);
+        try {
+          const res = await api.post(
+            `/api/prospects/import?campaign_id=${created.id}`,
+            formData,
+            { headers: { "Content-Type": "multipart/form-data" } },
+          );
+          setLeadsPreview({
+            imported: res.data.total_rows,
+            skipped: res.data.skipped ?? 0,
+          });
+          // Peupler la liste de preview avec les prospects importés
+          if (res.data.prospect_ids?.length > 0) {
+            const contactsRes = await api.get(
+              `/api/campaigns/${created.id}/contacts/`,
+            );
+            const contacts = contactsRes.data.map(
+              (c: {
+                prospect_id: number;
+                first_name: string;
+                last_name: string;
+              }) => ({
+                id: c.prospect_id,
+                name: `${c.first_name} ${c.last_name}`,
+              }),
+            );
+            setImportResults(contacts);
+          }
+        } catch {
+          // non-bloquant
+        }
+      }
+
+      setStep(7);
+    } catch {
       setError("Failed to create campaign. Please check required fields.");
     } finally {
       setLoading(false);
@@ -484,8 +586,232 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             </>
           )}
 
-          {/* STEP 5 — Review */}
+          {/* STEP 5 — Import leads */}
           {step === 4 && (
+            <>
+              <p className="text-sm text-gray-500">
+                Import your contacts from the trade show. Accepted formats: CSV,
+                XLSX, XLS.
+              </p>
+
+              <div
+                onClick={() => document.getElementById("leads-upload")?.click()}
+                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition"
+              >
+                <p className="text-3xl mb-2">📋</p>
+                {leadsFile ? (
+                  <>
+                    <p className="text-sm font-medium text-green-700">
+                      ✅ {leadsFile.name}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Click to change
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-600 font-medium">
+                      Click to upload your leads file
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      CSV, XLSX, XLS - exporter from the show scanner
+                    </p>
+                  </>
+                )}
+                <input
+                  id="leads-upload"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0] || null;
+                    setLeadsFile(file);
+                    if (!file) {
+                      setImportPreviewWarnings([]);
+                      setImportPreviewRows([]);
+                      setImportPreviewTotalRows(0);
+                      setImportPreviewError("");
+                      return;
+                    }
+                    await loadLeadsFilePreview(file);
+                  }}
+                />
+              </div>
+
+              {leadsPreview && (
+                <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-700">
+                  ⏳ Importing contacts... This may take a moment.
+                </div>
+              )}
+
+              {importPreviewError && (
+                <div className="p-4 bg-red-50 rounded-lg text-sm text-red-700">
+                  ❌ {importPreviewError}
+                </div>
+              )}
+
+              {importPreviewTotalRows > 0 &&
+                !importPreviewLoading &&
+                !importPreviewError && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 bg-green-50 rounded-lg text-sm text-green-700 flex-1">
+                        ✅ <strong>{importPreviewTotalRows}</strong> contacts
+                        detected in the file
+                      </div>
+                    </div>
+
+                    {importPreviewWarnings.length > 0 && (
+                      <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
+                        <ul className="text-sm text-yellow-700 space-y-1">
+                          {importPreviewWarnings.map((w, i) => (
+                            <li key={`w-${i}`}>{w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {importPreviewRows.length > 0 && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <div className="px-3 py-2 bg-gray-50 border-b text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          Overlook of first five contacts in the file
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-white border-b">
+                              <tr>
+                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                                  Name
+                                </th>
+                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                                  Email
+                                </th>
+                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                                  Company
+                                </th>
+                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                                  Position
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {importPreviewRows.map((row, i) => (
+                                <tr
+                                  key={`${row.email ?? "row"}-${i}`}
+                                  className="border-b last:border-0"
+                                >
+                                  <td className="px-3 py-2 text-gray-700">
+                                    <span>
+                                      {[row.first_name, row.last_name]
+                                        .filter(Boolean)
+                                        .join(" ") || "—"}
+                                    </span>
+                                    {row._already_exists && (
+                                      <span className="ml-2 text-xs bg-yellow-500 text-yellow-700 px-1.5 py-0.5 rounded">
+                                        (already in database)
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-500">
+                                    {String(row.email || "-")}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-500">
+                                    {String(row.company || "-")}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-500">
+                                    {String(row.position || "-")}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              {!leadsFile && (
+                <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-500">
+                  💡 No file? No problem. You can add contacts one by one from
+                  the
+                </div>
+              )}
+            </>
+          )}
+
+          {/* STEP 6 — Attachments */}
+          {step === 5 && (
+            <>
+              <p className="text-sm text-gray-500">
+                Upload files to attach to your emails (catalogue, flyer, price
+                list). Max 2 files × 5MB.
+              </p>
+
+              <div
+                onClick={() =>
+                  document.getElementById("attachments-upload")?.click()
+                }
+                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition"
+              >
+                <p className="text-3xl mb-2">📎</p>
+                <p className="text-sm text-gray-600 font-medium">
+                  Click to upload attachments
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  PDF only — max 2 files, 5MB each
+                </p>
+                <input
+                  id="attachments-upload"
+                  type="file"
+                  accept=".pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []).slice(0, 2);
+                    setAttachments(files);
+                  }}
+                />
+              </div>
+
+              {attachments.length > 0 && (
+                <div className="space-y-2">
+                  {attachments.map((f, i) => (
+                    <div
+                      key={i}
+                      className="flex justify-between items-center p-3 bg-gray-50 rounded-lg text-sm"
+                    >
+                      <span className="text-gray-700">📄 {f.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400">
+                          {(f.size / 1024 / 1024).toFixed(1)} MB
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setAttachments(
+                              attachments.filter((_, j) => j !== i),
+                            )
+                          }
+                          className="text-red-400 hover:text-red-600 text-xs"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-700">
+                💡 Attachments will be sent with your emails. The filename will
+                be mentioned automatically in the email body.
+              </div>
+            </>
+          )}
+
+          {/* STEP 7 — Review */}
+          {step === 6 && (
             <>
               <p className="text-sm text-gray-500">
                 Review your campaign before creating it.
@@ -547,6 +873,47 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
               )}
             </>
           )}
+
+          {/* STEP 8 — Preview emails */}
+          {step === 7 && (
+            <>
+              <p className="text-sm text-gray-500">
+                Preview the emails that will be sent to your contacts.
+              </p>
+
+              {importResults.length === 0 ? (
+                <div className="p-4 bg-yellow-50 rounded-lg text-sm text-yellow-700">
+                  ⚠️ No contacts imported — you can preview emails from the
+                  campaign detail page once you add contacts.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {importResults.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
+                    >
+                      <span className="text-sm text-gray-700 font-medium">
+                        {p.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewingProspect(p)}
+                        className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-lg hover:bg-blue-100"
+                      >
+                        👁 Preview emails
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="p-4 bg-green-50 rounded-lg text-sm text-green-700">
+                ✅ Campaign created successfully! Click "Go to campaign" when
+                ready.
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer nav */}
@@ -558,15 +925,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             {step === 0 ? "Cancel" : "← Back"}
           </button>
 
-          {step < STEPS.length - 1 ? (
-            <button
-              onClick={() => setStep(step + 1)}
-              disabled={step === 0 && (!form.name || !form.event_date)}
-              className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Next →
-            </button>
-          ) : (
+          {step === 6 ? (
             <button
               onClick={handleCreate}
               disabled={loading}
@@ -574,8 +933,35 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             >
               {loading ? "Creating..." : "✅ Create campaign"}
             </button>
+          ) : step === 7 ? (
+            <button
+              onClick={() =>
+                createdCampaignId && navigate(`/campaigns/${createdCampaignId}`)
+              }
+              className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Go to campaign →
+            </button>
+          ) : (
+            <button
+              onClick={() => setStep(step + 1)}
+              disabled={step === 0 && (!form.name || !form.event_date)}
+              className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next →
+            </button>
           )}
         </div>
+
+        {previewingProspect && createdCampaignId && (
+          <EmailPreviewModal
+            campaignId={createdCampaignId!}
+            prospectId={previewingProspect.id}
+            prospectName={previewingProspect.name}
+            attachmentNames={attachments.map((f) => f.name)}
+            onClose={() => setPreviewingProspect(null)}
+          />
+        )}
       </div>
     </div>
   );

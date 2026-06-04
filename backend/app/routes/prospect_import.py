@@ -22,6 +22,7 @@ from app.models.user import User
 from app.models.prospect import Prospect, ProspectSource, ProspectCanal
 from app.models.prospect_product import ProspectProduct
 from app.models.product import Product
+from app.models.campaign import CampaignContact
 
 router = APIRouter(prefix="/api/prospects", tags=["prospect-import"])
 
@@ -435,7 +436,34 @@ async def preview_prospect_import(
     if not warnings:
         warnings.append("✅ Fichier valide. Aucun problème détecté.")
 
-    sample = df.head(5).fillna("").to_dict(orient="records")
+    sample_raw = df.head(5).fillna("").to_dict(orient="records")
+
+    # Marquer les emails déjà connus dans le DB pour cet user
+    sample = []
+    for row in sample_raw:
+        email_val = str(row.get("email", "")).strip().lower()
+        already_exists = False
+        if email_val and "@" in email_val:
+            exists = db.query(Prospect).filter(
+                Prospect.user_id == current_user.id,
+                Prospect.email == email_val
+            ).first() is not None
+        sample.append({**row, "_already_exists": already_exists})
+    
+    all_emails = df["email"].apply(clean_value).dropna().str.lower().tolist()
+    existing_count = sum(
+        1 for e in all_emails
+        if db.query(Prospect).filter(
+            Prospect.user_id == current_user.id,
+            Prospect.email == e,
+        ).first() is not None
+    )
+    if existing_count > 0:
+        warnings.append(
+            f"ℹ️ {existing_count} email already exists in your database "
+            "(shown in preview with _already_exists=true)."
+        )
+            
 
     return {
         "total_rows": len(df),
@@ -449,6 +477,7 @@ async def preview_prospect_import(
 async def import_prospects(
     file: UploadFile = File(...),
     update_existing: bool = False,
+    campaign_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -476,6 +505,7 @@ async def import_prospects(
         raise HTTPException(status_code=400, detail=f"Colonnes manquantes: {', '.join(missing)}")
 
     stats = {"created": 0, "updated": 0, "skipped": 0, "errors": []}
+    imported_prospect_ids: list[int] = []
 
     for index, row in df.iterrows():
         try:
@@ -537,6 +567,7 @@ async def import_prospects(
                     db.flush()
                     prospect_id = existing.id
                     stats["updated"] += 1
+                    imported_prospect_ids.append(prospect_id)
                 else:
                     stats["skipped"] += 1
                     continue
@@ -558,6 +589,7 @@ async def import_prospects(
                 db.flush()
                 prospect_id = new_prospect.id
                 stats["created"] += 1
+                imported_prospect_ids.append(prospect_id)
 
             # Lien produits (collateral)
             collateral_raw = clean_value(row.get("collateral"))
@@ -587,6 +619,25 @@ async def import_prospects(
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Erreur commit: {str(e)}")
 
+    # Lier les prospects importés à la campagne si campaign_id fourni
+    if campaign_id:
+        for pid in imported_prospect_ids:
+            already = db.query(CampaignContact).filter(
+                CampaignContact.campaign_id == campaign_id,
+                CampaignContact.prospect_id == pid,
+            ).first()
+            if not already:
+                db.add(
+                    CampaignContact(
+                        campaign_id=campaign_id,
+                        prospect_id=pid,
+                        status="pending",
+                    )
+                )
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
     return {
         "success": True,
         "total_rows": len(df),
@@ -595,6 +646,7 @@ async def import_prospects(
         "skipped": stats["skipped"],
         "error_count": len(stats["errors"]),
         "errors": stats["errors"][:20],
+        "prospect_ids": imported_prospect_ids,
     }
 
 

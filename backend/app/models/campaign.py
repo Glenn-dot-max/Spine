@@ -73,6 +73,8 @@ class Campaign(Base):
     template_followup_2_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
     template_followup_3_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
 
+    attachment_paths = Column(Text, nullable=True)  # JSON list of attachment file paths
+    
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
