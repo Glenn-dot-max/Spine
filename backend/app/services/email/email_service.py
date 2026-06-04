@@ -273,6 +273,14 @@ class EmailService:
                 contact.email_sequence_step
             )
 
+        import json
+        attachment_paths = []
+        if campaign.attachment_paths:
+            try:
+                attachment_paths = json.loads(campaign.attachment_paths)
+            except Exception:
+                attachment_paths = []
+
         # Step 5: Send email
         try:
             if provider == "gmail":
@@ -283,7 +291,9 @@ class EmailService:
                     subject=subject,
                     html_body=html_body,
                     reply_to_message_id=contact.email_message_id,
-                    thread_id=contact.email_thread_id
+                    thread_id=contact.email_thread_id,
+                    attachment_paths=attachment_paths
+
                 )
 
             elif provider == "outlook":
@@ -294,7 +304,8 @@ class EmailService:
                     subject=subject,
                     html_body=html_body,
                     reply_to_message_id=contact.email_message_id,
-                    conversation_id=contact.email_thread_id
+                    conversation_id=contact.email_thread_id,
+                    attachment_paths=attachment_paths
                 )
 
             else:

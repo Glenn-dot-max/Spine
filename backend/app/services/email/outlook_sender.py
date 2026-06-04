@@ -6,9 +6,10 @@ import base64
 import json
 import requests
 import uuid
+import os
 import time
 from datetime import datetime, timezone
-from typing import Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple
 from sqlalchemy.orm import Session
 from app.services.oauth.outlook_oauth import refresh_outlook_token
 
@@ -193,7 +194,8 @@ class OutlookSender:
         subject: str,
         html_body: str,
         reply_to_message_id: Optional[str] = None,
-        conversation_id: Optional[str] = None
+        conversation_id: Optional[str] = None,
+        attachment_paths: Optional[List[str]] = None
     ) -> Dict[str, str]:
         """
         Send an email via Microsoft Graph API.
@@ -204,6 +206,7 @@ class OutlookSender:
             html_body: HTML content of the email
             reply_to_message_id: Message ID to reply to (for threading)
             conversation_id: Conversation ID (for threading)
+            attachment_paths: List of file paths to attach (optional)
         
         Returns:
             Dictionary with:
@@ -295,14 +298,28 @@ class OutlookSender:
                 draft_id = draft.get("id")
                 draft_conversation_id = draft.get("conversationId")
 
-                # Step 3: Send the draft
+                # Step 3: Attach files if any
+                for path in (attachment_paths or []):
+                    if os.path.exists(path):
+                        with open(path, 'rb') as f:
+                            file_content = base64.b64encode(f.read()).decode('utf-8')
+                        arrach_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/attachments"
+                        attachment_payload = {
+                            "@odata.type": "#microsoft.graph.fileAttachment",
+                            "name": os.path.basename(path),
+                            "contentBytes": file_content,
+                            "contentType": "application/pdf"
+                        }
+                        requests.post(arrach_url, headers=headers, json=attachment_payload)
+
+                # Step 4: Send the draft
                 send_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send"
 
                 response = requests.post(send_url, headers=headers)
                 response.raise_for_status()
                 
 
-                # Step 4: Retrieve the sent message with ROBUST SEARCH
+                # Step 5: Retrieve the sent message with ROBUST SEARCH
                 
                 sent_message_id, sent_conversation_id = self._find_sent_message_robust(
                     headers=headers,
@@ -364,14 +381,28 @@ class OutlookSender:
                 draft_id = draft.get("id")
                 draft_conversation_id = draft.get("conversationId")
 
+                # Step 2 : Attach files if any
+                for path in (attachment_paths or []):
+                    if os.path.exists(path):
+                        with open(path, 'rb') as f:
+                            file_content = base64.b64encode(f.read()).decode('utf-8')
+                        arrach_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/attachments"
+                        attachment_payload = {
+                            "@odata.type": "#microsoft.graph.fileAttachment",
+                            "name": os.path.basename(path),
+                            "contentBytes": file_content,
+                            "contentType": "application/pdf"
+                        }
+                        requests.post(arrach_url, headers=headers, json=attachment_payload)
 
-                # Step 2: Send the draft
+
+                # Step 3: Send the draft
                 send_url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send"
 
                 response = requests.post(send_url, headers=headers)
                 response.raise_for_status()
                 
-                # Step 3: Retrieve the sent message with ROBUST SEARCH
+                # Step 4: Retrieve the sent message with ROBUST SEARCH
                 
                 sent_message_id, sent_conversation_id = self._find_sent_message_robust(
                     headers=headers,
@@ -412,7 +443,8 @@ def send_email_via_outlook(
     subject: str,
     html_body: str,
     reply_to_message_id: Optional[str] = None,
-    conversation_id: Optional[str] = None
+    conversation_id: Optional[str] = None,
+    attachment_paths: Optional[List[str]] = None
 ) -> Dict[str, str]:
     """
     Convenience function to send email via Outlook.
@@ -425,9 +457,9 @@ def send_email_via_outlook(
         html_body: HTML email content
         reply_to_message_id: For threading (optional)
         conversation_id: For threading (optional)
-    
+        attachment_paths: List of file paths to attach (optional)
     Returns:
         Dict with message_id and conversation_id
     """
     sender = OutlookSender(user, db)
-    return sender.send_email(to_email, subject, html_body, reply_to_message_id, conversation_id)
+    return sender.send_email(to_email, subject, html_body, reply_to_message_id, conversation_id, attachment_paths)

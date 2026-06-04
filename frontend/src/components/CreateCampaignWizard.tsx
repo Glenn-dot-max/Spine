@@ -196,6 +196,21 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
         }
       }
 
+      // Upload des pièces jointes si présentes
+      if (attachments.length > 0) {
+        const attachFormData = new FormData();
+        attachments.forEach((f) => attachFormData.append("files", f));
+        try {
+          await api.post(
+            `/api/campaigns/${created.id}/attachments/`,
+            attachFormData,
+            { headers: { "Content-Type": "multipart/form-data" } },
+          );
+        } catch {
+          // non-bloquant
+        }
+      }
+
       setStep(7);
     } catch {
       setError("Failed to create campaign. Please check required fields.");

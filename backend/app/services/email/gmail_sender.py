@@ -7,8 +7,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 import base64
-from typing import Optional, Dict
+import os
+from typing import Optional, Dict, List
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -77,7 +80,8 @@ class GmailSender:
         subject: str,
         html_body: str,
         reply_to_message_id: Optional[str] = None,
-        thread_id: Optional[str] = None
+        thread_id: Optional[str] = None,
+        attachment_paths: Optional[List[str]] = None
     ) -> Dict[str, str]:
         """
         Send an email via Gmail API.
@@ -88,7 +92,7 @@ class GmailSender:
             html_body: HTML content of the email
             reply_to_message_id: Message ID to reply to (for threading)
             thread_id: Gmail thread ID (for threading)
-        
+            attachment_paths: List of file paths to attach to the email
         Returns:
             Dictionary with:
                 - message_id: Gmail message ID
@@ -105,7 +109,7 @@ class GmailSender:
             service = build('gmail', 'v1', credentials=credentials)
             
             # Create email message
-            message = MIMEMultipart('alternative')
+            message = MIMEMultipart('mixed')
             message['To'] = to_email
             message['From'] = self.user.gmail_email
             message['Subject'] = subject
@@ -115,9 +119,21 @@ class GmailSender:
                 message['In-Reply-To'] = reply_to_message_id
                 message['References'] = reply_to_message_id
             
-            # Attach HTML body
+            # HTML body dans une partie alternative
+            alternative_part = MIMEMultipart('alternative')
             html_part = MIMEText(html_body, 'html')
-            message.attach(html_part)
+            alternative_part.attach(html_part)
+            message.attach(alternative_part)
+
+            # Attached files if provided
+            for path in (attachment_paths or []): 
+                if os.path.exists(path):
+                    with open(path, 'rb') as f:
+                        part = MIMEBase('application', 'octet-stream')
+                        part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(path)}"')
+                    message.attach(part)
             
             # Encode message for Gmail API
             raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
@@ -172,7 +188,8 @@ def send_email_via_gmail(
     subject: str,
     html_body: str,
     reply_to_message_id: Optional[str] = None,
-    thread_id: Optional[str] = None
+    thread_id: Optional[str] = None,
+    attachment_paths: Optional[List[str]] = None
 ) -> Dict[str, str]:
     """
     Convenience function to send email via Gmail.
@@ -185,9 +202,9 @@ def send_email_via_gmail(
         html_body: HTML email content
         reply_to_message_id: For threading (optional)
         thread_id: For threading (optional)
-    
+        attachment_paths: List of file paths to attach (optional)
     Returns:
         Dict with message_id and thread_id
     """
     sender = GmailSender(user, db)
-    return sender.send_email(to_email, subject, html_body, reply_to_message_id, thread_id)
+    return sender.send_email(to_email, subject, html_body, reply_to_message_id, thread_id, attachment_paths)

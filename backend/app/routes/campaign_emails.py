@@ -2,9 +2,13 @@
 API routes for campaign email sending.
 Separate from campaign CRUD - focuses only on email operations.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, UploadFile, File as FastAPIFile
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import json
+import os
+
+ATTACHMENTS_DIR = "/tmp/spine_attachments"
 
 from app.db import get_db
 from app.models.user import User
@@ -319,3 +323,53 @@ def preview_email(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to render email preview: {str(e)}"
         )
+    
+# ===================== PIÈCES JOINTES =====================
+@router.post("/{campaign_id}/attachments")
+async def upload_campaign_attachments(
+    campaign_id: int,
+    files: List[UploadFile] = FastAPIFile(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Upload PDF attachments for a campaign. 
+    Saved to /tpm/spine_attachments/{campaign_id}/
+    Max 2 files x 5MB.
+    """
+    campaign = db.query(Campaign).filter(
+        Campaign.id == campaign_id,
+        Campaign.user_id == current_user.id
+    ).first()
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign {campaign_id} not found"
+        )
+    
+    if len(files) > 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maximum 2 attachments allowed"
+        )
+    
+    save_dir = os.path.join(ATTACHMENTS_DIR, str(campaign_id))
+    os.makedirs(save_dir, exist_ok=True)
+
+    saved_paths = []
+    for f in files:
+        content = await f.read()
+        if len(content) > 5 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File {f.filename} exceeds 5MB size limit"
+            )
+        dest = os.path.join(save_dir, f.filename)
+        with open(dest, "wb") as out:
+            out.write(content)
+        saved_paths.append(dest)
+
+    campaign.attachment_paths = json.dumps(saved_paths)
+    db.commit()
+
+    return {"uploaded": [os.path.basename(p) for p in saved_paths]}
