@@ -49,6 +49,8 @@ def list_products(
     products = db.query(ProductModel).filter(ProductModel.user_id == current_user.id).all()
     return products
 
+
+
 @router.get("/{product_id}", response_model=Product)
 def get_product(
     product_id: int,

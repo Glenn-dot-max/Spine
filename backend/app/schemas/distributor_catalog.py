@@ -45,7 +45,7 @@ class DistributorCatalogBase(BaseModel):
     notes: Optional[str] = None
 
 class DistributorCatalogCreate(DistributorCatalogBase):
-    company_id: int
+    company_id: Optional[int] = None  
 
 class DistributorCatalogUpdate(BaseModel):
     name: Optional[str] = None
@@ -54,10 +54,10 @@ class DistributorCatalogUpdate(BaseModel):
 class DistributorCatalogOut(DistributorCatalogBase):
     id: int
     user_id: int
-    company_id: int
+    company_id: Optional[int] = None
     created_at: datetime
     items: List[DistributorCatalogItemOut] = []
-    pdf_filename: Optional[str] = None
+    pdf_filename: Optional[str] = None    
     has_pdf: bool = False
 
     model_config = {"from_attributes": True}
@@ -65,7 +65,7 @@ class DistributorCatalogOut(DistributorCatalogBase):
 class DistributorCatalogSummary(DistributorCatalogBase):
     """Version légère sans les items — pour les listes."""
     id: int
-    company_id: int
+    company_id: Optional[int] = None
     item_count: int = 0
     pdf_filename: Optional[str] = None
     has_pdf: bool = False

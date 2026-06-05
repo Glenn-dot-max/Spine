@@ -121,7 +121,7 @@ export interface DistributorCatalogItem {
 
 export interface DistributorCatalog {
   id: number;
-  company_id: number;
+  company_id?: number;
   name: string;
   notes?: string;
   item_count?: number;

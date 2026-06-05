@@ -81,6 +81,14 @@ class PDFImportPreview(BaseModel):
     extraction_mode: str
     warnings: List[str]
 
+class PDFToCatalogResult(BaseModel):
+    """Résultat de l'import PDF vers catalogue."""
+    catalog_id: int
+    catalog_name: str
+    products_created: int
+    products_skipped: int
+    pdf_attached: bool
+    
 class ProductImportResult(BaseModel):
     """Result of import operation."""
     total_rows: int

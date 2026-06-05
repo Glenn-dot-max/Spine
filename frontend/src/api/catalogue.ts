@@ -153,6 +153,25 @@ export const getProductsForCompany = async (
   return res.data;
 };
 
+export const deleteProduct = async (id: number): Promise<void> => {
+  await api.delete(`/api/products/${id}/`);
+};
+
+export const updateProduct = async (
+  id: number,
+  data: {
+    name?: string;
+    brand?: string;
+    category?: string;
+    formats?: string;
+    price_range?: string;
+    short_description?: string;
+  },
+): Promise<Product> => {
+  const res = await api.patch(`/api/products/${id}/`, data);
+  return res.data;
+};
+
 export const createProduct = async (data: {
   item_number: string;
   name: string;
@@ -189,4 +208,27 @@ export const getCatalogPdfBlobUrl = async (
     responseType: "blob",
   });
   return URL.createObjectURL(res.data);
+};
+
+export type PDFToCatalogResult = {
+  catalog_id: number;
+  catalog_name: string;
+  products_created: number;
+  products_skipped: number;
+  pdf_attached: boolean;
+};
+
+export const importPDFToCatalog = async (
+  file: File,
+  catalogName: string,
+  companyId?: number,
+): Promise<PDFToCatalogResult> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("catalog_name", catalogName);
+  if (companyId) formData.append("company_id", catalogName);
+  const res = await api.post("/api/products/import/pdf/to-catalog", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
 };

@@ -83,27 +83,29 @@ def create_catalog(
     payload: DistributorCatalogCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
-    """Crée un catalogue pour un distributeur (company_id)."""
-    # Vérifier que la company appartient à l'user
-    from app.models.company import Company
-    company = db.query(Company).filter(
-        Company.id == payload.company_id,
-        Company.user_id == current_user.id
-    ).first()
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    # Vérifier qu'un catalogue n'existe pas déjà pour ce distributeur
-    existing = db.query(DistributorCatalog).filter(
-        DistributorCatalog.user_id == current_user.id,
-        DistributorCatalog.company_id == payload.company_id
-    ).first()
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Un catalogue existe déjà pour ce distributeur (id={existing.id})"
-        )
+):  
+    
+    """Crée un catalogue. Le distributeur (company_id) est optionnel."""
+    # Si company_id fourni, vérifier qu'elle appartient à l'user
+    if payload.company_id:
+        from app.models.company import Company
+        company = db.query(Company).filter(
+            Company.id == payload.company_id,
+            Company.user_id == current_user.id
+        ).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        
+        # Vérifier unicité user+company seulement si comany fournie
+        existing = db.query(DistributorCatalog).filter(
+            DistributorCatalog.user_id == current_user.id,
+            DistributorCatalog.company_id == payload.company_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Un catalogue existe déjà pour ce distributeur (id={existing.id})"
+            )
 
     catalog = DistributorCatalog(
         user_id=current_user.id,

@@ -30,9 +30,9 @@ class DistributorCatalog(Base, TimestampMixin):
         nullable=False,
         index=True
     )
-    company_id: Mapped[int] = mapped_column(
-        ForeignKey("companies.id", ondelete="CASCADE"),
-        nullable=False,
+    company_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        nullable=True,
         index=True
     )
 
@@ -51,7 +51,6 @@ class DistributorCatalog(Base, TimestampMixin):
     )
 
     __table_args__ = (
-        UniqueConstraint("user_id", "company_id", name="uq_catalog_user_company"),
         Index("ix_distributor_catalogs_user_id", "user_id"),
     )
 

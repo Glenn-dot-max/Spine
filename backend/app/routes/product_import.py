@@ -14,6 +14,9 @@ from app.models.product import Product
 from app.schemas import ProductImportResult, ProductImportPreview, PDFImportPreview
 from app.api.deps import get_current_user
 from app.services.pdf_ai_extractor import extract_products_with_ai
+from app.schemas import ProductImportResult, ProductImportPreview, PDFImportPreview, PDFToCatalogResult
+from app.models.distributor_catalog import DistributorCatalog, DistributorCatalogItem
+import os
 
 router = APIRouter(prefix="/api/products", tags=["product-import"])
 
@@ -443,4 +446,132 @@ async def import_products_from_pdf(
         updated=updated,
         skipped=skipped,
         errors=errors
+    )
+
+# ===================== IMPORT PDF -> CATALOG =====================
+
+CATALOGS_DIR = "/tmp/spine_catalogs"
+
+@router.post("/import/pdf/to-catalog", response_model=PDFToCatalogResult)
+async def import_pdf_to_catalog(
+    file: UploadFile = File(...),
+    catalog_name: str = "Mon catalogue",
+    company_id: int = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """
+    Pipeline complet : PDF -> extraction Haiku -> catalogue distributeur. 
+
+    1. Extrait les produits via Haiku Vision
+    2. Crée ou réutilise un catalogue existant (même nom + user)
+    3. Importe les produits dans le catalogue général + les associe au catalogue
+    4. Stock le PDF lié au catalogue
+
+    company_id est optionnel - permet un catalogue sans distributeur.
+    """
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(400, "File must be a PDF")
+    
+    contents = await file.read()
+
+    # Étape 1 = extraction Haiku
+    try:
+        extracted_products = extract_products_with_ai(contents)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"Extraction error: {str(e)}")
+    
+    # Étape 2 : créer ou récupérer le catalogue
+    existing_catalog = db.query(DistributorCatalog).filter(
+        DistributorCatalog.user_id == user.id,
+        DistributorCatalog.name == catalog_name
+    ).first()
+
+    if existing_catalog:
+        catalog = existing_catalog
+
+    else:
+        catalog = DistributorCatalog(
+            user_id=user.id,
+            name=catalog_name,
+            company_id=company_id if company_id and company_id > 0 else None,            
+        )
+        db.add(catalog)
+        db.flush()
+
+    # Étape 3 : importer les produits et les associer au catalogue
+    created = 0
+    skipped = 0
+
+    for ep in extracted_products:
+        item_number = ep.item_number.strip()
+        name = ep.name.strip()
+        if not item_number or not name:
+            skipped += 1
+            continue
+
+        # Créer le produit dans le catalogue général s'il n'existe pas
+        existing_product = db.query(Product).filter(
+            Product.user_id == user.id,
+            Product.item_number == item_number
+        ).first()
+
+        if not existing_product:
+            product = Product(
+                user_id=user.id,
+                item_number=item_number,
+                name=name,
+                brand=ep.brand,
+                short_description=ep.short_description,
+                category=ep.category,
+                formats=ep.formats,
+                price_range=ep.price_range,
+                certifications=ep.certifications,
+                segments=ep.segments,
+            )
+            db.add(product)
+            db.flush()
+            created += 1
+        else:
+            product = existing_product
+        
+        # Associer au catalogue si pas déjà présent
+        already_in_catalog = db.query(DistributorCatalogItem).filter(
+            DistributorCatalogItem.catalog_id == catalog.id,
+            DistributorCatalogItem.product_id == product.id
+        ).first()
+
+        if not already_in_catalog:
+            item = DistributorCatalogItem(
+                catalog_id=catalog.id,
+                product_id=product.id
+            )
+            db.add(item)
+        else:
+            skipped += 1
+
+    # Étape 4 : stocker le PDF 
+    pdf_atatched = False
+    try:
+        save_dir = os.path.join(CATALOGS_DIR, str(catalog.id))
+        os.makedirs(save_dir, exist_ok=True)
+        dest = os.path.join(save_dir, file.filename)
+        with open(dest, 'wb') as f:
+            f.write(contents)
+        catalog.pdf_path = dest
+        catalog.pdf_filename = file.filename
+        pdf_atatched = True
+    except Exception as e:
+        pass # non-bloquant
+
+    db.commit()
+
+    return PDFToCatalogResult(
+        catalog_id=catalog.id,
+        catalog_name=catalog.name,
+        products_created=created,
+        products_skipped=skipped,
+        pdf_attached=pdf_atatched,
     )
