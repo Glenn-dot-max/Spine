@@ -39,6 +39,10 @@ class DistributorCatalog(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
+    # PDF lié au catalogue (stocké dans /tmp/spine_catalogs/{catalog_id}/)
+    pdf_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    pdf_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     # Relationships
     company: Mapped["Company"] = relationship(back_populates="distributor_catalog")
     items: Mapped[List["DistributorCatalogItem"]] = relationship(

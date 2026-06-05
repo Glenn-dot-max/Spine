@@ -57,6 +57,8 @@ class DistributorCatalogOut(DistributorCatalogBase):
     company_id: int
     created_at: datetime
     items: List[DistributorCatalogItemOut] = []
+    pdf_filename: Optional[str] = None
+    has_pdf: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -65,5 +67,7 @@ class DistributorCatalogSummary(DistributorCatalogBase):
     id: int
     company_id: int
     item_count: int = 0
+    pdf_filename: Optional[str] = None
+    has_pdf: bool = False
 
     model_config = {"from_attributes": True}

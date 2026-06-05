@@ -126,4 +126,6 @@ export interface DistributorCatalog {
   notes?: string;
   item_count?: number;
   items?: DistributorCatalogItem[];
+  pdf_filename?: string;
+  has_pdf?: boolean;
 }

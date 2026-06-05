@@ -34,3 +34,8 @@ MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8
 FERNET_KEY = os.getenv("FERNET_KEY")
 if not FERNET_KEY:
     raise ValueError("FERNET_KEY is not set in environment variables.")
+
+# Anthropic Haiku
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+if not ANTHROPIC_API_KEY:
+    raise ValueError("ANTHROPIC_API_KEY is not set in environment variables.")

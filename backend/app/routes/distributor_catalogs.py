@@ -8,9 +8,13 @@ Sécurité : user_id filtré sur toutes les requêtes
 À faire : /
 Dernière modification : 2026-06-02 — Création
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from typing import List
+import os
+
+CATALOGS_DIR = "/tmp/spine_catalogs"
 
 from app.core.deps import get_db, get_current_user
 from app.models.user import User
@@ -68,6 +72,8 @@ def list_catalogs(
             name=catalog.name,
             notes=catalog.notes,
             item_count=item_count,
+            pdf_filename=catalog.pdf_filename,
+            has_pdf=bool(catalog.pdf_path and os.path.isfile(catalog.pdf_path)),
         ))
     return result
 
@@ -116,6 +122,8 @@ def create_catalog(
         notes=catalog.notes,
         created_at=catalog.created_at,
         items=[],
+        pdf_filename=None,
+        has_pdf=False,
     )
 
 
@@ -143,6 +151,8 @@ def get_catalog(
         notes=catalog.notes,
         created_at=catalog.created_at,
         items=[_serialize_item(item) for item in catalog.items],
+        pdf_filename=catalog.pdf_filename,
+        has_pdf=bool(catalog.pdf_path and os.path.isfile(catalog.pdf_path)),
     )
 
 
@@ -349,3 +359,70 @@ def get_products_for_company(
             }
             for p in products
         ]
+    
+# --- PDF du catalogue ---
+
+@router.post("/{catalog_id}/upload-pdf")
+async def upload_catalog_pdf(
+    catalog_id: int,
+    file: UploadFile = FastAPIFile(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload un PDF lié à ce catalogue distributeur.
+    Stocké dans /tmp/spine_catalogs/{catalog_id}/
+    Remplace le PDF existant si déjà présent.
+    """
+    catalog = db.query(DistributorCatalog).filter(
+        DistributorCatalog.id == catalog_id,
+        DistributorCatalog.user_id == current_user.id, 
+    ).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+    
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds 20MB limit")
+    
+    save_dir = os.path.join(CATALOGS_DIR, str(catalog_id))
+    os.makedirs(save_dir, exist_ok=True)
+
+    dest = os.path.join(save_dir, file.filename)
+    with open(dest, "wb") as f:
+        f.write(content)
+
+    catalog.pdf_path = dest
+    catalog.pdf_filename = file.filename
+    db.commit()
+
+    return {"pdf_filename": file.filename}
+
+@router.get("/{catalog_id}/pdf")
+def download_catalog_pdf(
+    catalog_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Télécharge / affiche le PDF lié à ce catalogue.
+    Utilisé par le frontend pour le preview inline.
+    """
+    catalog = db.query(DistributorCatalog).filter(
+        DistributorCatalog.id == catalog_id,
+        DistributorCatalog.user_id == current_user.id, 
+    ).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+    
+    if not catalog.pdf_path or not os.path.isfile(catalog.pdf_path):
+        raise HTTPException(status_code=404, detail="PDF not found")
+
+    return FileResponse(
+        path=catalog.pdf_path,
+        media_type="application/pdf",
+        filename=catalog.pdf_filename or "catalog.pdf",
+    )

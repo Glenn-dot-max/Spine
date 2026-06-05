@@ -74,6 +74,13 @@ class ProductImportPreview(BaseModel):
     columns_detected: List[str]
     warnings: List[str]
 
+class PDFImportPreview(BaseModel):
+    """Preview of PDF catalog extraction by Haiku before importing."""
+    products: List[dict]
+    total_extracted: int
+    extraction_mode: str
+    warnings: List[str]
+
 class ProductImportResult(BaseModel):
     """Result of import operation."""
     total_rows: int

@@ -37,6 +37,37 @@ export const importProductsCSV = async (
   return res.data;
 };
 
+export type PDFExtractedProduct = {
+  item_number: string;
+  name: string;
+  brand?: string;
+  short_description?: string;
+  category?: string;
+  formats?: string;
+  price_range?: string;
+  certifications?: string;
+  segment?: string;
+  confidence: number;
+};
+
+export type PDFImportPreview = {
+  products: PDFExtractedProduct[];
+  total_extracted: number;
+  extraction_mode: "text" | "vision";
+  warnings: string[];
+};
+
+export const previewProductsPDF = async (
+  file: File,
+): Promise<PDFImportPreview> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await api.post("/api/products/import/pdf/preview", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
 export const importProductsPDF = async (
   file: File,
 ): Promise<{
@@ -49,9 +80,7 @@ export const importProductsPDF = async (
   const formData = new FormData();
   formData.append("file", file);
   const res = await api.post("/api/products/import/pdf", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
+    headers: { "Content-Type": "multipart/form-data" },
   });
   return res.data;
 };
@@ -137,4 +166,27 @@ export const createProduct = async (data: {
 }): Promise<Product> => {
   const res = await api.post("/api/products/", data);
   return res.data;
+};
+
+export const uploadCatalogPdf = async (
+  catalogId: number,
+  file: File,
+): Promise<{ pdf_filename: string }> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await api.post(
+    `/api/distributor-catalogs/${catalogId}/upload-pdf`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return res.data;
+};
+
+export const getCatalogPdfBlobUrl = async (
+  catalogId: number,
+): Promise<string> => {
+  const res = await api.get(`/api/distributor-catalogs/${catalogId}/pdf`, {
+    responseType: "blob",
+  });
+  return URL.createObjectURL(res.data);
 };

@@ -11,8 +11,9 @@ from typing import List
 from app.db import get_db
 from app.models.user import User
 from app.models.product import Product
-from app.schemas import ProductImportResult, ProductImportPreview
+from app.schemas import ProductImportResult, ProductImportPreview, PDFImportPreview
 from app.api.deps import get_current_user
+from app.services.pdf_ai_extractor import extract_products_with_ai
 
 router = APIRouter(prefix="/api/products", tags=["product-import"])
 
@@ -308,6 +309,62 @@ async def export_products(
         }
     )
 
+@router.post("/import/pdf/preview", response_model=PDFImportPreview)
+async def preview_pdf_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """
+    Preview PDF catalog extraction via Haiku Vision avant import.
+    Retourne les produits détectés sans les sauvegarder en base.
+    Le frontend peut alors confirmer ou corriger avant l'import définitif.
+    """
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(400, "File must be a PDF")
+    
+    contents = await file.read()
+    warnings = []
+
+    try:
+        extracted = extract_products_with_ai(contents)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"Extraction error: {str(e)}")
+    
+
+    # Détecter le mode utilisé (texte ou vision) pour l'afficher dans l'UI
+    import io as _io
+    import pdfplumber as _pdfplumber
+    raw_text = ""
+    try:
+        with _pdfplumber.open(_io.BytesIO(contents)) as pdf:
+            num_pages = len(pdf.pages)
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t:
+                    raw_text += t
+    except Exception:
+        num_pages = 1
+
+    avg_chars = len(raw_text) / max(num_pages, 1)
+    extraction_mode = "text" if avg_chars >= 100 else "vision"
+
+    if num_pages > 15:
+        warnings.append(f"⚠️ This PDF has {num_pages} pages.")
+
+    if not extracted:
+        warnings.append("⚠️ No products could be extracted from this PDF. Try importing a CSV instead.")
+    
+    return PDFImportPreview(
+        products=[p.model_dump() for p in extracted],
+        total_extracted=len(extracted),
+        extraction_mode=extraction_mode,
+        warnings=warnings
+    )
+
+
 @router.post("/import/pdf", response_model=ProductImportResult)
 async def import_products_from_pdf(
     file: UploadFile = File(...),
@@ -315,7 +372,7 @@ async def import_products_from_pdf(
     user: User = Depends(get_current_user)
 ):
     """
-    Import proucts from a PDF catalog.
+    Import products from a PDF catalog.
     Automatically extracts tables and product lines from the PDF.
     The file is NOT stored - processed in memory only.
     """
@@ -325,10 +382,13 @@ async def import_products_from_pdf(
     contents = await file.read()
 
     try:
-        from app.services.pdf_catalog_parser import parse_pdf_catalog
-        extracted = parse_pdf_catalog(contents)
+        extracted_products = extract_products_with_ai(contents)
+        # Convertir en dicts pour la suite du traitement existant
+        extracted = [p.model_dump() for p in extracted_products]
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
-        raise HTTPException(400, f"Error processing PDF: {str(e)}")
+        raise HTTPException(500, f"Error processing PDF: {str(e)}")
     
     if not extracted:
         raise HTTPException(400, "No products could be extracted from this PDF. Try importing a CSV instead.")

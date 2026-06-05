@@ -10,6 +10,9 @@ import {
   getProducts,
   importProductsCSV,
   importProductsPDF,
+  previewProductsPDF,
+  type PDFExtractedProduct,
+  type PDFImportPreview,
   downloadTemplate,
   getDistributorCatalogs,
   getDistributorCatalog,
@@ -18,6 +21,8 @@ import {
   removeProductFromCatalog,
   deleteDistributorCatalog,
   createProduct,
+  uploadCatalogPdf,
+  getCatalogPdfBlobUrl,
 } from "../api/catalogue";
 
 import { getCompanies } from "../api/companies";
@@ -58,6 +63,8 @@ export default function Catalogue() {
     skipped: number;
     errors: string[];
   } | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<PDFImportPreview | null>(null);
+  const [pdfPreviewing, setPdfPreviewing] = useState(false);
 
   // -- Catalogues distributeurs --
   const [catalogs, setCatalogs] = useState<DistributorCatalog[]>([]);
@@ -70,6 +77,8 @@ export default function Catalogue() {
     "",
   );
   const [addingProductId, setAddingProductId] = useState<number | "">("");
+  const [catalogPdfUrl, setCatalogPdfUrl] = useState<string | null>(null);
+  const [pdfUploading, setPdfUploading] = useState(false);
 
   // Chargement initial
   useEffect(() => {
@@ -139,17 +148,46 @@ export default function Catalogue() {
   // -- import CSV/PDF --
   const handleImport = async () => {
     if (!importFile) return;
+    if (importType === "pdf") {
+      setPdfPreviewing(true);
+      setPdfPreview(null);
+      setImportResult(null);
+      try {
+        const preview = await previewProductsPDF(importFile);
+        setPdfPreview(preview);
+      } catch (e) {
+        console.error("Erreur preview PDF:", e);
+      } finally {
+        setPdfPreviewing(false);
+      }
+      return;
+    }
+    // CSV : import direct
     setImporting(true);
     setImportResult(null);
     try {
-      const result =
-        importType === "csv"
-          ? await importProductsCSV(importFile)
-          : await importProductsPDF(importFile);
+      const result = await importProductsCSV(importFile);
       setImportResult(result);
       if (result.created > 0 || result.updated > 0) loadProducts();
     } catch (e) {
       console.error("Erreur import:", e);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // -- import PDF : confirmation après preview --
+  const handlePDFConfirmImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const result = await importProductsPDF(importFile);
+      setImportResult(result);
+      setPdfPreview(null);
+      if (result.created > 0 || result.updated > 0) loadProducts();
+    } catch (e) {
+      console.error("Erreur import PDF:", e);
     } finally {
       setImporting(false);
     }
@@ -175,11 +213,37 @@ export default function Catalogue() {
 
   // -- Ouvrir un catalogue --
   const handleOpenCatalog = async (id: number) => {
+    setCatalogPdfUrl(null);
     try {
       const data = await getDistributorCatalog(id);
       setSelectedCatalog(data);
+      if (data.has_pdf) {
+        try {
+          const url = await getCatalogPdfBlobUrl(id);
+          setCatalogPdfUrl(url);
+        } catch {
+          // PDF non disponible, on ignore
+        }
+      }
     } catch (e) {
       console.error("Erreur chargement catalogue:", e);
+    }
+  };
+
+  const handleUploadCatalogPdf = async (file: File) => {
+    if (!selectedCatalog) return;
+    setPdfUploading(true);
+    try {
+      await uploadCatalogPdf(selectedCatalog.id, file);
+      const url = await getCatalogPdfBlobUrl(selectedCatalog.id);
+      setCatalogPdfUrl(url);
+      const updated = await getDistributorCatalog(selectedCatalog.id);
+      setSelectedCatalog(updated);
+      loadCatalogs();
+    } catch (e) {
+      console.error("Erreur upload PDF:", e);
+    } finally {
+      setPdfUploading(false);
     }
   };
 
@@ -348,11 +412,11 @@ export default function Catalogue() {
                   Prix indicatif
                 </label>
                 <input
-                  value={productForm.indicative_price}
+                  value={productForm.price_range}
                   onChange={(e) =>
                     setProductForm({
                       ...productForm,
-                      indicative_price: e.target.value,
+                      price_range: e.target.value,
                     })
                   }
                   className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
@@ -459,10 +523,15 @@ export default function Catalogue() {
 
       {/* ===== ONGLET IMPORT ===== */}
       {activeTab === "import" && (
-        <div className="max-w-lg">
+        <div className="max-w-2xl">
+          {/* Toggle CSV / PDF */}
           <div className="flex gap-4 mb-6">
             <button
-              onClick={() => setImportType("csv")}
+              onClick={() => {
+                setImportType("csv");
+                setPdfPreview(null);
+                setImportResult(null);
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-medium border ${
                 importType === "csv"
                   ? "bg-blue-50 border-blue-300 text-blue-700"
@@ -472,7 +541,11 @@ export default function Catalogue() {
               CSV / Excel
             </button>
             <button
-              onClick={() => setImportType("pdf")}
+              onClick={() => {
+                setImportType("pdf");
+                setPdfPreview(null);
+                setImportResult(null);
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-medium border ${
                 importType === "pdf"
                   ? "bg-blue-50 border-blue-300 text-blue-700"
@@ -492,11 +565,24 @@ export default function Catalogue() {
             </button>
           )}
 
+          {importType === "pdf" && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+              🤖 Le catalogue sera analysé par{" "}
+              <strong>Claude Haiku Vision</strong> - extraction automatique de
+              tous les produits visibles.
+            </div>
+          )}
+
+          {/* Zone d'upload */}
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center mb-4">
             <input
               type="file"
               accept={importType === "csv" ? ".csv,.xlsx,.xls" : ".pdf"}
-              onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                setImportFile(e.target.files?.[0] ?? null);
+                setPdfPreview(null);
+                setImportResult(null);
+              }}
               className="w-full text-sm text-gray-600"
             />
             <p className="text-xs text-gray-400 mt-2">
@@ -506,14 +592,136 @@ export default function Catalogue() {
             </p>
           </div>
 
-          <button
-            onClick={handleImport}
-            disabled={!importFile || importing}
-            className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            {importing ? "Import en cours..." : "Importer"}
-          </button>
+          {/* Bouton principal (masqué si preview déjà affichée) */}
+          {!pdfPreview && (
+            <button
+              onClick={handleImport}
+              disabled={!importFile || importing || pdfPreviewing}
+              className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              {pdfPreviewing
+                ? "⏳ Analyse en cours..."
+                : importType === "pdf"
+                  ? "🔍 Analyzing with AI"
+                  : importing
+                    ? "Import en cours..."
+                    : "Importer"}
+            </button>
+          )}
 
+          {/* Preview PDF - tableau avant confirmation */}
+          {pdfPreview && !importResult && (
+            <div className="mt-4 space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {pdfPreview.total_extracted} produit
+                    {pdfPreview.total_extracted > 1 ? "s" : ""} détecté
+                    {pdfPreview.total_extracted > 1 ? "s" : ""}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Mode :{" "}
+                    {pdfPreview.extraction_mode === "vision"
+                      ? "Vision AI"
+                      : "📝 Texte"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setPdfPreview(null)}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  x Recommencer
+                </button>
+              </div>
+
+              {pdfPreview.warnings.length > 0 && (
+                <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg space-y-1">
+                  {pdfPreview.warnings.map((w, i) => (
+                    <p key={i} className="text-xs text-yellow-700">
+                      {w}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <div className="border rounded-lg overflow-hidden">
+                <div className="px-3 py-2 bg-gray-50 border-b text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Aperçu des produits extraits
+                </div>
+                <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-white border-b sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                          Référence
+                        </th>
+                        <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                          Nom
+                        </th>
+                        <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                          Marque
+                        </th>
+                        <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                          Catégorie
+                        </th>
+                        <th className="text-left px-3 py-2 text-gray-500 font-medium">
+                          Confiance
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pdfPreview.products.map(
+                        (p: PDFExtractedProduct, i: number) => (
+                          <tr
+                            key={i}
+                            className="border-b last:border-0 hover:bg-gray-50"
+                          >
+                            <td className="px-3 py-2 font-mono text-gray-500">
+                              {p.item_number}
+                            </td>
+                            <td className="px-3 py-2 font-medium text-gray-800">
+                              {p.name}
+                            </td>
+                            <td className="px-3 py-2 text-gray-500">
+                              {p.brand ?? "-"}
+                            </td>
+                            <td className="px-3 py-2 text-gray-500">
+                              {p.category ?? "-"}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                  p.confidence >= 0.8
+                                    ? "bg-green-100 text-green-700"
+                                    : p.confidence >= 0.5
+                                      ? "bg-yellow-100 text-yellow-700"
+                                      : "bg-gray-100 text-gray-700"
+                                }`}
+                              >
+                                {Math.round(p.confidence * 100)}%
+                              </span>
+                            </td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <button
+                onClick={handlePDFConfirmImport}
+                disabled={importing}
+                className="w-full py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {importing
+                  ? "Import en cours..."
+                  : `✅ Confirmer l'import (${pdfPreview.total_extracted} produit)`}
+              </button>
+            </div>
+          )}
+
+          {/* Résultat final */}
           {importResult && (
             <div
               className={`mt-4 p-4 rounded-lg text-sm ${
@@ -525,7 +733,7 @@ export default function Catalogue() {
               <p className="font-medium mb-2">Résultat de l'import</p>
               <ul className="space-y-1 text-gray-700">
                 <li>
-                  Total lignes : <strong>{importResult.total_rows}</strong>
+                  Total : <strong>{importResult.total_rows}</strong>
                 </li>
                 <li>
                   Créés :{" "}
@@ -548,11 +756,20 @@ export default function Catalogue() {
                   <p className="font-medium text-yellow-700">Erreurs :</p>
                   {importResult.errors.map((e, i) => (
                     <p key={i} className="text-xs text-yellow-700">
-                      {e}
+                      {String(e)}
                     </p>
                   ))}
                 </div>
               )}
+              <button
+                onClick={() => {
+                  setImportResult(null);
+                  setImportFile(null);
+                }}
+                className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline"
+              >
+                Importer un autre fichier
+              </button>
             </div>
           )}
         </div>
@@ -659,87 +876,148 @@ export default function Catalogue() {
               </div>
             ) : (
               <div>
-                <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                  {selectedCatalog.name}
-                </h2>
-                <p className="text-sm text-gray-500 mb-4">
-                  {companyName(selectedCatalog.company_id)}
-                </p>
-
-                {/* Ajouter un produit */}
-                <div className="flex gap-2 mb-4">
-                  <select
-                    value={addingProductId}
-                    onChange={(e) => setAddingProductId(Number(e.target.value))}
-                    className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2"
-                  >
-                    <option value="">Ajouter un produit...</option>
-                    {availableProducts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.item_number} — {p.name}{" "}
-                        {p.brand ? `(${p.brand})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={handleAddProduct}
-                    disabled={!addingProductId}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    Ajouter
-                  </button>
+                {/* Header catalogue */}
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      {selectedCatalog.name}
+                    </h2>
+                    <p className="text-sm text-gray-500">
+                      {companyName(selectedCatalog.company_id)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {catalogPdfUrl && (
+                      <a
+                        href={catalogPdfUrl}
+                        download={
+                          selectedCatalog.pdf_filename ?? "catalogue.pdf"
+                        }
+                        className="text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-1"
+                      >
+                        ↓ {selectedCatalog.pdf_filename ?? "catalogue.pdf"}
+                      </a>
+                    )}
+                    <label
+                      className={`text-xs px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 ${pdfUploading ? "opacity-50 cursor-not-allowed" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}
+                    >
+                      📎{" "}
+                      {pdfUploading
+                        ? "Upload..."
+                        : selectedCatalog.has_pdf
+                          ? "Remplacer le PDF"
+                          : "Joindre un PDF"}
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        className="hidden"
+                        disabled={pdfUploading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleUploadCatalogPdf(f);
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
 
-                {/* Liste des produits dans ce catalogue */}
-                {!selectedCatalog.items ||
-                selectedCatalog.items.length === 0 ? (
-                  <p className="text-sm text-gray-400">
-                    Aucun produit dans ce catalogue
-                  </p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 text-left text-gray-500">
-                        <th className="pb-2 pr-4">Référence</th>
-                        <th className="pb-2 pr-4">Nom</th>
-                        <th className="pb-2 pr-4">Marque</th>
-                        <th className="pb-2 pr-4">Catégorie</th>
-                        <th className="pb-2"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedCatalog.items.map(
-                        (item: DistributorCatalogItem) => (
-                          <tr
-                            key={item.id}
-                            className="border-b border-gray-100 hover:bg-gray-50"
-                          >
-                            <td className="py-2 pr-4 font-mono text-xs text-gray-500">
-                              {item.product_item_number}
-                            </td>
-                            <td className="py-2 pr-4 font-medium text-gray-900">
-                              {item.product_name}
-                            </td>
-                            <td className="py-2 pr-4 text-gray-600">
-                              {item.product_brand ?? "—"}
-                            </td>
-                            <td className="py-2 pr-4 text-gray-600">
-                              {item.product_category ?? "—"}
-                            </td>
-                            <td className="py-2 text-right">
-                              <button
-                                onClick={() => handleRemoveProduct(item.id)}
-                                className="text-xs text-gray-400 hover:text-red-500"
-                              >
-                                Retirer
-                              </button>
-                            </td>
+                {/* Layout 2 colonnes : produits + PDF  */}
+                <div
+                  className={`flex gap-4 ${catalogPdfUrl ? "items-start" : ""}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    {/* Ajouter un produit */}
+                    <div className="flex gap-2 mb-4">
+                      <select
+                        value={addingProductId}
+                        onChange={(e) =>
+                          setAddingProductId(Number(e.target.value))
+                        }
+                        className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2"
+                      >
+                        <option value="">Ajouter un produit...</option>
+                        {availableProducts.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.item_number} — {p.name}{" "}
+                            {p.brand ? `(${p.brand})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={handleAddProduct}
+                        disabled={!addingProductId}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+
+                    {/* Liste des produits dans ce catalogue */}
+                    {!selectedCatalog.items ||
+                    selectedCatalog.items.length === 0 ? (
+                      <p className="text-sm text-gray-400">
+                        Aucun produit dans ce catalogue
+                      </p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200 text-left text-gray-500">
+                            <th className="pb-2 pr-4">Référence</th>
+                            <th className="pb-2 pr-4">Nom</th>
+                            <th className="pb-2 pr-4">Marque</th>
+                            <th className="pb-2 pr-4">Catégorie</th>
+                            <th className="pb-2"></th>
                           </tr>
-                        ),
-                      )}
-                    </tbody>
-                  </table>
-                )}
+                        </thead>
+                        <tbody>
+                          {selectedCatalog.items.map(
+                            (item: DistributorCatalogItem) => (
+                              <tr
+                                key={item.id}
+                                className="border-b border-gray-100 hover:bg-gray-50"
+                              >
+                                <td className="py-2 pr-4 font-mono text-xs text-gray-500">
+                                  {item.product_item_number}
+                                </td>
+                                <td className="py-2 pr-4 font-medium text-gray-900">
+                                  {item.product_name}
+                                </td>
+                                <td className="py-2 pr-4 text-gray-600">
+                                  {item.product_brand ?? "—"}
+                                </td>
+                                <td className="py-2 pr-4 text-gray-600">
+                                  {item.product_category ?? "—"}
+                                </td>
+                                <td className="py-2 text-right">
+                                  <button
+                                    onClick={() => handleRemoveProduct(item.id)}
+                                    className="text-xs text-gray-400 hover:text-red-500"
+                                  >
+                                    Retirer
+                                  </button>
+                                </td>
+                              </tr>
+                            ),
+                          )}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Preview PDF inline */}
+                  {catalogPdfUrl && (
+                    <div className="w-80 flex-shrink-0">
+                      <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">
+                        Preview of catalog
+                      </p>
+                      <iframe
+                        src={catalogPdfUrl}
+                        className="w-full h-96 rounded-lg border border-gray-200"
+                        title="Catalogue PDF"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
