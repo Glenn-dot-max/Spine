@@ -49,7 +49,25 @@ def list_products(
     products = db.query(ProductModel).filter(ProductModel.user_id == current_user.id).all()
     return products
 
-
+@router.get("/catalog-memberships")
+def get_catalog_memberships(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retourne pour chaque product_id la liste des catalogues qui le contiennent."""
+    from app.models.distributor_catalog import DistributorCatalog as DCModel, DistributorCatalogItem as DCItem
+    rows = (
+        db.query(DCItem.product_id, DCModel.id, DCModel.name)
+        .join(DCModel, DCItem.catalog_id == DCModel.id)
+        .filter(DCModel.user_id == current_user.id)
+        .all()
+    )
+    result: dict = {}
+    for product_id, catalog_id, catalog_name in rows:
+        if product_id not in result:
+            result[product_id] = []
+        result[product_id].append({"catalog_id": catalog_id, "catalog_name": catalog_name})
+    return result
 
 @router.get("/{product_id}", response_model=Product)
 def get_product(

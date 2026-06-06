@@ -26,6 +26,9 @@ import {
   updateProduct,
   uploadCatalogPdf,
   getCatalogPdfBlobUrl,
+  getProductCatalogMemberships,
+  type CatalogMembership,
+  type CatalogMemberships,
 } from "../api/catalogue";
 
 import { getCompanies } from "../api/companies";
@@ -54,6 +57,8 @@ export default function Catalogue() {
     price_range: "",
     short_description: "",
   });
+  const [catalogMemberships, setCatalogMemberships] =
+    useState<CatalogMemberships>({});
   const [productForm, setProductForm] = useState({
     item_number: "",
     name: "",
@@ -108,6 +113,8 @@ export default function Catalogue() {
     try {
       const data = await getProducts();
       setProducts(data);
+      const memberships = await getProductCatalogMemberships();
+      setCatalogMemberships(memberships);
     } catch (e) {
       console.error("Erreur chargement produits:", e);
     } finally {
@@ -549,6 +556,7 @@ export default function Catalogue() {
                       <th className="pb-3 pr-4">Catégorie</th>
                       <th className="pb-3 pr-4">Formats</th>
                       <th className="pb-3 pr-4">Statut</th>
+                      <th className="pb-3 pr-4">Catalogues</th>
                       <th className="pb-3"></th>
                     </tr>
                   </thead>
@@ -583,6 +591,24 @@ export default function Catalogue() {
                           >
                             {p.is_active ? "Actif" : "Inactif"}
                           </span>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <div className="flex flex-wrap gap-1">
+                            {(catalogMemberships[p.id] ?? []).length === 0 ? (
+                              <span className="text-xs text-gray-300">—</span>
+                            ) : (
+                              (catalogMemberships[p.id] ?? []).map(
+                                (m: CatalogMembership) => (
+                                  <span
+                                    key={m.catalog_id}
+                                    className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-600 border border-blue-100"
+                                  >
+                                    {m.catalog_name}
+                                  </span>
+                                ),
+                              )
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 text-right">
                           <div className="flex justify-end gap-2">

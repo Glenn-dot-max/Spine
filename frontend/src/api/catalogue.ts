@@ -232,3 +232,14 @@ export const importPDFToCatalog = async (
   });
   return res.data;
 };
+
+// --- Memberships catalogue ---
+
+export type CatalogMembership = { catalog_id: number; catalog_name: string };
+export type CatalogMemberships = Record<number, CatalogMembership[]>;
+
+export const getProductCatalogMemberships =
+  async (): Promise<CatalogMemberships> => {
+    const res = await api.get("/api/products/catalog-memberships");
+    return res.data;
+  };
