@@ -14,6 +14,7 @@ import Navbar from "./components/Navbar";
 import Templates from "./pages/Templates";
 import Companies from "./pages/Companies";
 import Catalogue from "./pages/Catalogue";
+import ProspectImport from "./pages/ProspectImport";
 import type React from "react";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ function App() {
                     <Route path="/templates" element={<Templates />} />
                     <Route path="/companies" element={<Companies />} />
                     <Route path="/catalogue" element={<Catalogue />} />
+                    <Route path="/import-leads" element={<ProspectImport />} />
                   </Routes>
                 </div>
               </div>

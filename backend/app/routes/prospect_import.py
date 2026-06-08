@@ -691,3 +691,252 @@ def export_prospects(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=prospects_export.xlsx"},
     )
+
+# -------------------------------------------------
+# AI-POWERED IMPORT - ANALYZE + CONFIRM
+# -------------------------------------------------
+
+@router.post("/import/ai-analyze")
+async def ai_analyze_import(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Step 1 of AI import wizard.
+    - Reads the file (any format)
+    - Calls Haiku to map columns -> Spine fields
+    - Applies the mapping to all rows
+    - Calls haiku to enrich each row: product matching, note rewrite, category inference
+    - Returns a preview with all enrichments for user review
+    - No database writes
+    """
+    from app.services.prospect_ai_enricher import (
+        analyze_column_mapping,
+        enrich_rows_batch,
+        build_enriched_rows,
+    )
+
+    # 1. Read file
+    try:
+        contents = await file.read()
+        df = read_uploaded_dataframe(file.filename, contents)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File read error: {str(e)}")
+    
+    # 2. Ask haiku to map columns
+    headers = df.columns.tolist()
+    sample_rows = df.head(3).fillna("").to_dict(orient="records")
+    column_mapping = analyze_column_mapping(headers, sample_rows)
+
+    # 3. rename colums according to AI mapping
+    rename_map = {k: v for k, v in column_mapping.items() if v is not None}
+    df_mapped = df.rename(columns=rename_map)
+    df_mapped = coalesce_duplicate_columns(df_mapped)
+
+    # 4. Build rows list with row index
+    rows = []
+    for i, row in df_mapped.iterrows():
+        r = {k: clean_value(v) for k, v in row.items()}
+        r["_row_index"] = int(i)
+        rows.append(r)
+
+    # 5. Load user's catalog products for matching
+    catalog_products = [
+        {
+            "id": p.id,
+            "name": p.name,
+            "item_number": p.item_number,
+            "brand": p.brand or "",
+            "category": p.category or "",
+        }
+        for p in db.query(Product).filter(Product.user_id == current_user.id).all()
+    ]
+
+    # 6. Enrich all rows via Haiku (no PII sent)
+    enrichment_results = enrich_rows_batch(rows, catalog_products)
+
+    # 7. Assemble final enriched rows
+    enriched = build_enriched_rows(rows, enrichment_results, catalog_products)
+
+    # 8. Flag rows with existing emails in DB
+    existing_emails = set(
+        r[0] for r in db.query(Prospect.email)
+        .filter(Prospect.user_id == current_user.id)
+        .all()
+    )
+
+    enriched_dicts = []
+    for row in enriched:
+        d = row.model_dump()
+        d["already_exists"] = (row.email or "").lower() in existing_emails
+        enriched_dicts.append(d)
+
+    return {
+        "total_rows": len(enriched_dicts),
+        "column_mapping": column_mapping,
+        "unmapped_columns": [k for k, v in column_mapping.items() if v is None],
+        "rows": enriched_dicts,
+    }
+
+@router.post("/import/ai-confirm")
+async def ai_confirm_import(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Step 2 of AI import wizard.
+    Takes the reviewed/corrected rows from the frontend and imports them to the DB.
+    
+    Expected payload:
+    {
+        "rows": [ EnrichedRow dicts, possibly modified by user ],
+        "update_existing": bool,
+        "campaign_id": int | null
+    } 
+    """
+    rows = payload.get("rows", [])
+    update_existing = payload.get("update_existing", False)
+    campaign_id = payload.get("campaign_id")
+
+    stats = {"created": 0, "updated": 0, "skipped": 0, "errors": []}
+    imported_ids: list[int] = []
+
+    for row in rows:
+        try:
+            email = (row.get("email") or "").strip().lower()
+            if not email or "@" not in email:
+                stats["errors"].append(f"Row {row.get('row_index')}: missing or invalid email.")
+                continue
+
+            first_name = row.get("first_name") or ""
+            last_name = row.get("last_name") or ""
+            if not first_name or not last_name:
+                stats["errors"].append(f"Row {row.get('row_index')}: missing first or last name.")
+                continue
+
+            company_name = row.get("company_name")
+            position = row.get("position")
+            phone_number = row.get("phone_number")
+            clean_note = row.get("clean_note")
+
+            # Canal: prefer AI-inferred if no raw canal
+            canal_raw = row.get("canal_raw")
+            category = row.get("category") or {}
+            inferred_canal_str = category.get("inferred_canal")
+
+            if canal_raw:
+                canal, canal_detail = detect_canal(canal_raw)
+            elif inferred_canal_str:
+                try:
+                    canal = ProspectCanal(inferred_canal_str)
+                except ValueError:
+                    canal = ProspectCanal.other
+                canal_detail = None
+            else:
+                canal = None
+                canal_detail = None
+
+            source = infer_source_from_canal(canal)
+
+            # Upsert
+            existing = db.query(Prospect).filter(
+                Prospect.user_id == current_user.id,
+                Prospect.email == email
+            ).first()
+
+            if existing:
+                if update_existing:
+                    existing.first_name = first_name
+                    existing.last_name = last_name
+                    existing.company_name = company_name
+                    existing.position = position
+                    existing.phone_number = phone_number
+                    existing.source_notes = clean_note
+                    existing.canal = canal
+                    existing.canal_detail = canal_detail
+                    existing.source = source
+                    db.flush()
+                    prospect_id = existing.id
+                    stats["updated"] += 1
+                    imported_ids.append(prospect_id)
+                else:
+                    stats["skipped"] += 1
+                    continue
+
+            else:
+                new_prospect = Prospect(
+                    user_id=current_user.id,
+                    email=email,
+                    first_name=first_name,
+                    last_name=last_name,
+                    company_name=company_name,
+                    position=position,
+                    phone_number=phone_number,
+                    source=source,
+                    source_notes=clean_note,
+                    canal=canal,
+                    canal_detail=canal_detail,
+                )
+                db.add(new_prospect)
+                db.flush()
+                prospect_id = new_prospect.id
+                stats["created"] += 1
+                imported_ids.append(prospect_id)
+
+            # Link confirmed product matches
+            for match in row.get("product_matches", []):
+                pid = match.get("product_id")
+                if not pid:
+                    continue
+                already = db.query(ProspectProduct).filter(
+                    ProspectProduct.prospect_id == prospect_id,
+                    ProspectProduct.product_id == pid,
+                ).first()
+                if not already:
+                    db.add(ProspectProduct(
+                        prospect_id=prospect_id,
+                        product_id=pid,
+                        notes=f"AI match (confidence: {match.get('confidence', '?')})",
+                    ))
+
+        except Exception as e:
+            stats["errors"].append(f"Row {row.get('row_index')}: {str(e)}")
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Database commit error: {str(e)}")
+    
+    # Link to campaign if provided
+    if campaign_id:
+        for pid in imported_ids:
+            already = db.query(CampaignContact).filter(
+                CampaignContact.campaign_id == campaign_id,
+                CampaignContact.prospect_id == pid,
+            ).first()
+            if not already:
+                db.add(CampaignContact(
+                    campaign_id=campaign_id,
+                    prospect_id=pid,
+                    status="pending",
+                ))
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+
+    return {
+        "success": True,
+        "created": stats["created"],
+        "updated": stats["updated"],
+        "skipped": stats["skipped"],
+        "error_count": len(stats["errors"]),
+        "errors": stats["errors"][:20],
+        "prospect_ids": imported_ids,
+    }
+                    

@@ -40,6 +40,12 @@ function Navbar() {
                 Prospects
               </Link>
               <Link
+                to="/import-leads"
+                className={`px-2 py-2 ${isActive("/import-leads")}`}
+              >
+                📥 Import Leads
+              </Link>
+              <Link
                 to="/templates"
                 className={`px-2 py-2 ${isActive("/templates")}`}
               >
