@@ -36,7 +36,7 @@ from typing import Optional, Dict, List
 from sqlalchemy.orm import Session
 
 from app.models.prospect import Prospect
-from app.models.company import Company, StructureType
+from app.models.company import Company, ChainLevel, EndUserType
 from app.models.campaign import Campaign, CampaignSource
 from app.models.user import User
 
@@ -167,21 +167,24 @@ class EmailComposer:
     @staticmethod
     def _segment_note_block(
         campaign: Campaign,
-        structure_type: Optional[StructureType],
+        end_user_type: Optional[EndUserType],
     ) -> Optional[str]:
         """
         Note spécifique au segment du prospect.
         Injecte segment_note_global toujours si renseignée.
-        Injecte segment_note_XXX si type_structure match.
+        Injecte segment_note_XXX selon end_user_type du prospect.
         """
         parts = []
 
-        # Note spécifique au type de structure
-        if structure_type == StructureType.foodservice and campaign.segment_note_restaurant:
+        # Note spécifique au type d'end user
+        foodservice_types = {
+            EndUserType.restaurant, EndUserType.hotel,
+            EndUserType.franchise, EndUserType.country_club,
+            EndUserType.catering, EndUserType.institutional,
+        }
+        if end_user_type in foodservice_types and campaign.segment_note_restaurant:
             parts.append(campaign.segment_note_restaurant.strip())
-        elif structure_type == StructureType.industry and campaign.segment_note_industry:
-            parts.append(campaign.segment_note_industry.strip())
-        elif structure_type == StructureType.retail and campaign.segment_note_retail:
+        elif end_user_type == EndUserType.retail and campaign.segment_note_retail:
             parts.append(campaign.segment_note_retail.strip())
 
         # Note globale (toujours ajoutée si renseignée)
@@ -392,9 +395,9 @@ class EmailComposer:
                 "Only 'trade_show' is active in V1 Sprint 4."
             )
 
-        # Résoudre company + structure_type
+        # Résoudre company + end_user_type pour segmentation
         company: Optional[Company] = prospect.company
-        structure_type: Optional[StructureType] = company.type_structure if company else None
+        end_user_type: Optional[EndUserType] = company.end_user_type if company else None
 
         # Résoudre produits d'intérêt
         product_names: List[str] = []
@@ -420,7 +423,7 @@ class EmailComposer:
                 campaign.catalog_pitch_text, product_names, has_attachment
             ),
             "segment_note": overrides.get("segment_note") or EmailComposer._segment_note_block(
-                campaign, structure_type
+                campaign, end_user_type
             ),
             "samples": overrides.get("samples") or EmailComposer._samples_block(
                 campaign.offer_samples, campaign.samples_note

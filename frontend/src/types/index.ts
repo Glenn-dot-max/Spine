@@ -81,13 +81,15 @@ export interface Company {
   market?: string;
   website?: string;
   notes?: string;
-  type_structure?: "retail" | "foodservice" | "industry" | "other";
-  type_contact?:
-    | "distributor"
+  chain_level?: "distributor" | "importer" | "broker" | "end_user" | "other";
+  end_user_type?:
     | "restaurant"
-    | "factory"
-    | "consultant"
-    | "retailer"
+    | "hotel"
+    | "franchise"
+    | "country_club"
+    | "catering"
+    | "retail"
+    | "institutional"
     | "other";
   created_at: string;
   updated_at: string;

@@ -13,8 +13,8 @@ function Companies() {
     market: "",
     website: "",
     notes: "",
-    type_structure: "",
-    type_contact: "",
+    chain_level: "",
+    end_user_type: "",
   });
 
   useEffect(() => {
@@ -33,10 +33,16 @@ function Companies() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     await createCompany({
-      ...form,
-      type_structure: (form.type_structure ||
-        undefined) as Company["type_structure"],
-      type_contact: (form.type_contact || undefined) as Company["type_contact"],
+      name: form.name,
+      market: form.market || undefined,
+      website: form.website || undefined,
+      notes: form.notes || undefined,
+      chain_level: (form.chain_level || undefined) as Company["chain_level"],
+      // end_user_type only sent when chain_level = end_user
+      end_user_type:
+        form.chain_level === "end_user"
+          ? ((form.end_user_type || undefined) as Company["end_user_type"])
+          : undefined,
     });
     setShowForm(false);
     setForm({
@@ -44,8 +50,8 @@ function Companies() {
       market: "",
       website: "",
       notes: "",
-      type_structure: "",
-      type_contact: "",
+      chain_level: "",
+      end_user_type: "",
     });
     fetchCompanies();
   };
@@ -115,43 +121,55 @@ function Companies() {
               />
             </div>
             <div>
+              {/* Chain Level = position dans la chaîne de distribution (niveau 1) */}
               <label className="block text-sm text-gray-600 mb-1">
-                Type Structure
+                Chain Level *
               </label>
               <select
-                value={form.type_structure}
+                value={form.chain_level}
                 onChange={(e) =>
-                  setForm({ ...form, type_structure: e.target.value })
+                  setForm({
+                    ...form,
+                    chain_level: e.target.value,
+                    end_user_type: "",
+                  })
                 }
                 className="w-full border rounded px-3 py-2 text-sm"
               >
-                <option value="">Select</option>
-                <option value="retail">Retail</option>
-                <option value="foodservice">Foodservice</option>
-                <option value="industry">Industry</option>
+                <option value="">Select position...</option>
+                <option value="distributor">🏭 Distributor</option>
+                <option value="importer">🚢 Importer</option>
+                <option value="broker">🤝 Broker</option>
+                <option value="end_user">🍽 End User</option>
                 <option value="other">Other</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">
-                Type Contact
-              </label>
-              <select
-                value={form.type_contact}
-                onChange={(e) =>
-                  setForm({ ...form, type_contact: e.target.value })
-                }
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">Select</option>
-                <option value="distributor">Distributor</option>
-                <option value="restaurant">Restaurant</option>
-                <option value="factory">Factory</option>
-                <option value="consultant">Consultant</option>
-                <option value="retailer">Retailer</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
+
+            {/* End User Type = sous-qualification, visible uniquement si chain_level = end_user */}
+            {form.chain_level === "end_user" && (
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">
+                  End User Type
+                </label>
+                <select
+                  value={form.end_user_type}
+                  onChange={(e) =>
+                    setForm({ ...form, end_user_type: e.target.value })
+                  }
+                  className="w-full border rounded px-3 py-2 text-sm"
+                >
+                  <option value="">Select type...</option>
+                  <option value="restaurant">🍴 Restaurant</option>
+                  <option value="hotel">🏨 Hotel</option>
+                  <option value="franchise">🔗 Franchise</option>
+                  <option value="country_club">⛳ Country Club</option>
+                  <option value="catering">🎉 Catering</option>
+                  <option value="retail">🛒 Retail</option>
+                  <option value="institutional">🏛 Institutional</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-sm text-gray-600 mb-1">Notes</label>
               <textarea
@@ -198,8 +216,8 @@ function Companies() {
               <tr className="text-left text-gray-500 border-b bg-gray-50">
                 <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Market</th>
-                <th className="px-4 py-2">Type Structure</th>
-                <th className="px-4 py-2">Type Contact</th>
+                <th className="px-4 py-2">Chain Level</th>
+                <th className="px-4 py-2">End User Type</th>
                 <th className="px-4 py-2">Website</th>
                 <th className="px-4 py-2"></th>
               </tr>
@@ -207,11 +225,41 @@ function Companies() {
             <tbody>
               {filtered.map((c) => (
                 <tr key={c.id} className="border-b">
-                  <td className="px-4 py-2">{c.name}</td>
-                  <td className="px-4 py-2">{c.market || "-"}</td>
-                  <td className="px-4 py-2">{c.type_structure || "-"}</td>
-                  <td className="px-4 py-2">{c.type_contact || "-"}</td>
-                  <td className="px-4 py-2">{c.website || "-"}</td>
+                  <td className="px-4 py-2 font-medium">{c.name}</td>
+                  <td className="px-4 py-2 text-gray-500">{c.market || "-"}</td>
+                  <td className="px-4 py-2">
+                    {c.chain_level ? (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          c.chain_level === "distributor"
+                            ? "bg-blue-100 text-blue-700"
+                            : c.chain_level === "importer"
+                              ? "bg-purple-100 text-purple-700"
+                              : c.chain_level === "broker"
+                                ? "bg-yellow-100 text-yellow-700"
+                                : c.chain_level === "end_user"
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {c.chain_level.replace("_", " ")}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    {c.end_user_type ? (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-600">
+                        {c.end_user_type.replace("_", " ")}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-gray-400 text-xs">
+                    {c.website || "-"}
+                  </td>
                   <td className="px-4 py-2">
                     <button
                       onClick={() => handleDelete(c.id, c.name)}

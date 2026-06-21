@@ -1,30 +1,43 @@
 """
-Company model - represents a business entity linked to prospects.
+SPINE V1 - company model
+========================
+Role: Business entity in the food distribution chain. 
+      Two-level qualification:
+        1. chain_level : position in the distribution chain
+        2. end_user_type: sub-type when chain_level = end_user
+Dependencies: app.models.base
+Used by: routes/companies.py, routes/campaigns.py
+Security: user_is required in all queries.
+Last modified: 2026 - 06 - 21 - chain_level + end_user_type replace type_structure/type_contact
 """
-
 from sqlalchemy import String, Text, Enum, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import List, Optional
+from typing import Optional, List
 import enum
 
 from app.models.base import Base, TimestampMixin
 
-class StructureType(str, enum.Enum):
-    retail = "retail"
-    foodservice = "foodservice"
-    industry = "industry"
+class ChainLevel(str, enum.Enum):
+    """Position of the company in the food distribution chain."""
+    distributor = "distributor"    # Sysco, US Foods, etc.
+    importer = "importer"          # Imports from abroad
+    broker = "broker"              # Intermediary / rep
+    end_user = "end_user"          # Final buyer (restaurant, hotel, etc.)
     other = "other"
 
-class ContactType(str, enum.Enum):
-    distributor = "distributor"
+class EndUserType(str, enum.Enum):
+    """Sub-type when chain_level = end_user."""
     restaurant = "restaurant"
-    factory = "factory"
-    consultant = "consultant"
-    retailer = "retailer"
+    hotel = "hotel"
+    franchise = "franchise"
+    country_club = "country_club"
+    catering = "catering"
+    institutional = "institutional"
+    retail = "retail"
     other = "other"
 
 class Company(Base, TimestampMixin):
-    """Business entity that can be linked to multiple prospects."""
+    """Business entity that can be linked to prospects."""
     __tablename__ = "companies"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -32,7 +45,7 @@ class Company(Base, TimestampMixin):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True 
     )
 
     # Identity
@@ -41,28 +54,27 @@ class Company(Base, TimestampMixin):
     website: Mapped[Optional[str]] = mapped_column(String(255))
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
-    # Classification
-    type_structure: Mapped[Optional[StructureType]] = mapped_column(
-        Enum(StructureType),
-        nullable=True
+    # Classification - Level 1 : position in the distribution chain
+    chain_level: Mapped[Optional[ChainLevel]] = mapped_column(
+        Enum(ChainLevel), nullable=True
     )
-    type_contact: Mapped[Optional[ContactType]] = mapped_column(
-        Enum(ContactType),
-        nullable=True
+
+    # Classification - Level 2 : sub-type (only relevant when chain_level = end_user)
+    end_user_type: Mapped[Optional[EndUserType]] = mapped_column(
+        Enum(EndUserType), nullable=True
     )
 
     # Relationships
     user: Mapped["User"] = relationship(back_populates="companies")
     prospects: Mapped[List["Prospect"]] = relationship(back_populates="company")
     distributor_catalog: Mapped[Optional["DistributorCatalog"]] = relationship(
-        back_populates="company",
+        back_populates="company", 
         uselist=False,
     )
-    
 
     __table_args__ = (
         Index("ix_companies_user_id_name", "user_id", "name"),
     )
 
     def __repr__(self) -> str:
-        return f"<Company {self.name} ({self.type_structure})>"
+        return f"<Company {self.name} ({self.chain_level})>"
