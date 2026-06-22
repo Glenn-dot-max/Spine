@@ -74,7 +74,9 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [stagedRows, setStagedRows] = useState<EnrichedRow[]>([]);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<
+    { file: File; linkedProductIds: number[] }[]
+  >([]);
   const [createdCampaignId, setCreatedCampaignId] = useState<number | null>(
     null,
   );
@@ -204,7 +206,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
       // Upload des pièces jointes si présentes
       if (attachments.length > 0) {
         const attachFormData = new FormData();
-        attachments.forEach((f) => attachFormData.append("files", f));
+        attachments.forEach((a) => attachFormData.append("files", a.file));
         try {
           await api.post(
             `/api/campaigns/${created.id}/attachments/`,
@@ -659,52 +661,81 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             />
           )}
 
-          {/* STEP 6 — Attachments */}
+          {/* PAGE 3 - Attachment library */}
           {step === 5 && (
             <>
               <p className="text-sm text-gray-500">
-                Upload files to attach to your emails (catalogue, flyer, price
-                list). Max 2 files × 5MB.
+                Upload files to attach to your emails. You can link each file to
+                one or more products from your campaign catalogue.
               </p>
 
-              <div
-                onClick={() =>
-                  document.getElementById("attachments-upload")?.click()
-                }
-                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition"
-              >
-                <p className="text-3xl mb-2">📎</p>
-                <p className="text-sm text-gray-600 font-medium">
-                  Click to upload attachments
-                </p>
-                <p className="text-xs text-gray-400 mt-1">
-                  PDF only — max 2 files, 5MB each
-                </p>
-                <input
-                  id="attachments-upload"
-                  type="file"
-                  accept=".pdf"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files || []).slice(0, 2);
-                    setAttachments(files);
-                  }}
-                />
-              </div>
+              {/* Upload zone - disabled if 2 files already */}
+              {attachments.length < 2 && (
+                <div
+                  onClick={() =>
+                    document.getElementById("attachments-upload")?.click()
+                  }
+                  className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition"
+                >
+                  <p className="text-3xl mb-2">📎</p>
+                  <p className="text-sm text-gray-600 font-medium">
+                    Click to ass a file
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    PDF only - max 2 files, 5 MB each
+                  </p>
+                  <input
+                    id="attachments-upload"
+                    type="file"
+                    accept=".pdf"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 5 * 1024 * 1024) {
+                        alert("File size exceeds 5 MB");
+                        return;
+                      }
+                      setAttachments((prev) => [
+                        ...prev,
+                        { file, linkedProductIds: [] },
+                      ]);
+                      // Reset input so same file can be re-selected
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
+              )}
 
+              {attachments.length === 2 && (
+                <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-yellow-700">
+                  ⚠️ Maximum of 2 attachments reached. Remove a file to add
+                  another.
+                </div>
+              )}
+
+              {/* Library - one card per file */}
               {attachments.length > 0 && (
-                <div className="space-y-2">
-                  {attachments.map((f, i) => (
+                <div className="space-y-3">
+                  {attachments.map((att, i) => (
                     <div
                       key={i}
-                      className="flex justify-between items-center p-3 bg-gray-50 rounded-lg text-sm"
+                      className="border border-gray-200 rounded-xl p-4 space-y-3 bg-white"
                     >
-                      <span className="text-gray-700">📄 {f.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-400">
-                          {(f.size / 1024 / 1024).toFixed(1)} MB
-                        </span>
+                      {/* File header */}
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">📄</span>
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">
+                              {att.file.name}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {(att.file.size / 1024 / 1024).toFixed(1)} MB
+                            </p>
+                          </div>
+                        </div>
                         <button
                           type="button"
                           onClick={() =>
@@ -712,20 +743,79 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
                               attachments.filter((_, j) => j !== i),
                             )
                           }
-                          className="text-red-400 hover:text-red-600 text-xs"
                         >
-                          ✕
+                          ✕ Remove
                         </button>
+                      </div>
+
+                      {/* Link to products */}
+                      <div>
+                        <p className="text-xs font-medium text-gray-600 mb-2">
+                          Link to products
+                          <span className="ml-1 font-normal text-gray-400">
+                            (optional - helps personalise email mentions)
+                          </span>
+                        </p>
+
+                        {selectedProductIds.length === 0 ? (
+                          <p className="text-sm text-gray-400">
+                            No products selected in catalogue step. You can link
+                            this file to products from the campaign detail page
+                            after creating the campaign.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedProductIds.map((productId) => {
+                              const isLinked =
+                                att.linkedProductIds.includes(productId);
+                              return (
+                                <button
+                                  key={productId}
+                                  type="button"
+                                  onClick={() => {
+                                    setAttachments((prev) =>
+                                      prev.map((a, idx) => {
+                                        if (idx !== i) return a;
+                                        return {
+                                          ...a,
+                                          linkedProductIds: isLinked
+                                            ? a.linkedProductIds.filter(
+                                                (id) => id !== productId,
+                                              )
+                                            : [
+                                                ...a.linkedProductIds,
+                                                productId,
+                                              ],
+                                        };
+                                      }),
+                                    );
+                                  }}
+                                  className={`px-2 py-1 rounded-lg text-xs border transition ${
+                                    isLinked
+                                      ? "bg-blue-600 text-white border-blue-600"
+                                      : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
+                                  }`}
+                                >
+                                  {isLinked ? "✓ " : ""}
+                                  Product #{productId}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-700">
-                💡 Attachments will be sent with your emails. The filename will
-                be mentioned automatically in the email body.
-              </div>
+              {attachments.length === 0 && (
+                <div className="p-4 bg-blue-50 rounded-lg text-sm text-gray-500">
+                  💡 No attachments? No problem — emails will be sent without
+                  any attachment. You can always add them later from the
+                  campaign detail page.
+                </div>
+              )}
             </>
           )}
 
@@ -877,7 +967,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             campaignId={createdCampaignId!}
             prospectId={previewingProspect.id}
             prospectName={previewingProspect.name}
-            attachmentNames={attachments.map((f) => f.name)}
+            attachmentNames={attachments.map((a) => a.file.name)}
             onClose={() => setPreviewingProspect(null)}
           />
         )}

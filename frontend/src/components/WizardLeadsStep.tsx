@@ -53,6 +53,44 @@ export default function WizardLeadsStep({ onRowsReady, readyRowCount }: Props) {
   >({});
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [analyzeError, setAnalyzeError] = useState("");
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    first_name: "",
+    last_name: "",
+    email: "",
+    company_name: "",
+    position: "",
+    clean_note: "",
+  });
+  const [manualRows, setManualRows] = useState<EnrichedRow[]>([]);
+
+  const handleAddManual = () => {
+    if (!manualForm.email) return;
+    const newRow: EnrichedRow = {
+      row_index: -(manualRows.length + 1), // index négatif = saisie manuelle
+      first_name: manualForm.first_name,
+      last_name: manualForm.last_name,
+      email: manualForm.email,
+      company_name: manualForm.company_name,
+      position: manualForm.position,
+      clean_note: manualForm.clean_note,
+      product_matches: [],
+      product_suggestions: [],
+      original_row: {},
+    };
+    const updated = [...manualRows, newRow];
+    setManualRows(updated);
+    setManualForm({
+      first_name: "",
+      last_name: "",
+      email: "",
+      company_name: "",
+      position: "",
+      clean_note: "",
+    });
+    // Stage immediately si pas d'import fichier en cours
+    if (!result) onRowsReady(updated);
+  };
 
   const handleAnalyze = async () => {
     if (!file) return;
@@ -112,35 +150,6 @@ export default function WizardLeadsStep({ onRowsReady, readyRowCount }: Props) {
     );
   };
 
-  // Résumé si leads déjà stagés
-  if (readyRowCount > 0 && subStep === 1 && !result) {
-    return (
-      <div className="space-y-3">
-        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-sm font-semibold text-green-700">
-            ✅ {readyRowCount} lead{readyRowCount > 1 ? "s" : ""} ready to
-            import
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            They will be linked to the campaign when you create it.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setSubStep(1);
-            setResult(null);
-            setRows([]);
-            setFile(null);
-          }}
-          className="text-xs text-blue-600 hover:underline"
-        >
-          → Import another file
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {/* Indicateur sous-steps */}
@@ -171,6 +180,22 @@ export default function WizardLeadsStep({ onRowsReady, readyRowCount }: Props) {
       {/* ── SUB-STEP 1 : UPLOAD ── */}
       {subStep === 1 && (
         <div className="space-y-3">
+          {/* Sucess badge - visible as soon as leads are staged */}
+          {readyRowCount > 0 && (
+            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <span className="text-lg">✅</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-green-700">
+                  {readyRowCount} lead{readyRowCount > 1 ? "s" : ""} staged for
+                  import
+                </p>
+                <p className="text-xs text-green-500">
+                  Add more below, or click Next to continue.
+                </p>
+              </div>
+            </div>
+          )}
+
           <p className="text-sm text-gray-500">
             Upload your leads file from the trade show. Claude Haiku will map
             columns, match products and rewrite notes as CRM entries.
@@ -212,6 +237,154 @@ export default function WizardLeadsStep({ onRowsReady, readyRowCount }: Props) {
           >
             {analyzing ? "⏳ Analyzing with AI..." : "🔍 Analyze with AI"}
           </button>
+
+          {/* Separator */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-xs text-gray-400">or</span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+
+          {/* Manual entry */}
+          {manualRows.length > 0 && (
+            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-xs font-medium text-green-700">
+                ✅ {manualRows.length} lead{manualRows.length > 1 ? "s" : ""}{" "}
+                added manually
+              </p>
+            </div>
+          )}
+
+          {showManualForm ? (
+            <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-gray-50">
+              <p className="text-sm font-medium text-gray-700">
+                Add a lead manually
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    First name
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.first_name}
+                    onChange={(e) =>
+                      setManualForm((f) => ({
+                        ...f,
+                        first_name: e.target.value,
+                      }))
+                    }
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                    placeholder="Jane"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Last name
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.last_name}
+                    onChange={(e) =>
+                      setManualForm((f) => ({
+                        ...f,
+                        last_name: e.target.value,
+                      }))
+                    }
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                    placeholder="Smith"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={manualForm.email}
+                    onChange={(e) =>
+                      setManualForm((f) => ({ ...f, email: e.target.value }))
+                    }
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                    placeholder="jane.smith@company.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Company
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.company_name}
+                    onChange={(e) =>
+                      setManualForm((f) => ({
+                        ...f,
+                        company_name: e.target.value,
+                      }))
+                    }
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                    placeholder="Sysco"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Position
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.position}
+                    onChange={(e) =>
+                      setManualForm((f) => ({ ...f, position: e.target.value }))
+                    }
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                    placeholder="Buyer"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Note
+                  </label>
+                  <textarea
+                    value={manualForm.clean_note}
+                    onChange={(e) =>
+                      setManualForm((f) => ({
+                        ...f,
+                        clean_note: e.target.value,
+                      }))
+                    }
+                    className="w-full border rounded px-2 py-1.5 text-sm resize-none"
+                    rows={2}
+                    placeholder="Met at booth #42, interested in..."
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowManualForm(false)}
+                  className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddManual}
+                  disabled={!manualForm.email}
+                  className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  + Add lead
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowManualForm(true)}
+              className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+            >
+              + Add a lead manually
+            </button>
+          )}
         </div>
       )}
 
