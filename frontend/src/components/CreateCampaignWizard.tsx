@@ -1,15 +1,23 @@
 /**
  * SPINE V1 — CreateCampaignWizard
- * Rôle : Wizard 5 étapes pour créer une campagne post-salon.
+ * Rôle : Wizard 5 pages pour créer une campagne post-salon.
  * Props : onClose (ferme le wizard), onCreated (callback après création)
- * Dépendances API : POST /api/campaigns/
- * À faire : Step 5 preview par prospect (dans CampaignDetail)
+ * Dépendances API : POST /api/campaigns/, GET /api/companies/
+ * À faire : Pages 2-5 (catalogue, PJ, leads IA, templates)
+ * Dernière modification : 2026-06-21 — Page 2 redesign avec distributeur picker + CC suggérés
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { createCampaign } from "../api/campaigns";
 import api from "../api/client";
 import EmailPreviewModal from "./EmailPreviewModal";
+import {
+  getDistributors,
+  getCompanyContacts,
+  type CompanyContact,
+} from "../api/companies";
+import WizardCatalogueStep from "./WizardCatalogueStep";
+import type { Company } from "../types";
 
 type WizardProps = {
   onClose: () => void;
@@ -47,10 +55,12 @@ const emptyForm = {
   followup_delay_2: 14,
   followup_delay_3: 21,
 
-  // Step 2
+  // Step 2 — Distributeur
   is_distributor_show: false,
+  distributor_company_id: null as number | null,
   distributor_name: "",
   auto_cc_sales_rep: false,
+  cc_contact_ids: [] as number[],
 
   // Step 3
   catalog_pitch_text: "",
@@ -96,9 +106,54 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
     ImportPreviewRow[]
   >([]);
   const [importPreviewTotalRows, setImportPreviewTotalRows] = useState(0);
+  const [distributors, setDistributors] = useState<Company[]>([]);
+  const [companyContacts, setCompanyContacts] = useState<CompanyContact[]>([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
+
+  // Charger les distributeurs au montage du wizard
+  useEffect(() => {
+    getDistributors()
+      .then(setDistributors)
+      .catch(() => {});
+  }, []);
 
   const set = (field: string, value: unknown) =>
     setForm((f) => ({ ...f, [field]: value }));
+
+  // Sélection d'un distributeur → charge ses contacts pour les CC suggérés
+  const handleDistributorSelect = async (companyId: number | null) => {
+    set("distributor_company_id", companyId);
+    set("cc_contact_ids", []);
+    setCompanyContacts([]);
+    if (!companyId) {
+      set("distributor_name", "");
+      return;
+    }
+    const selected = distributors.find((d) => d.id === companyId);
+    set("distributor_name", selected?.name ?? "");
+    setLoadingContacts(true);
+    try {
+      const contacts = await getCompanyContacts(companyId);
+      setCompanyContacts(contacts);
+    } catch {
+      // non-bloquant
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
+  const toggleCcContact = (contactId: number) => {
+    const current = form.cc_contact_ids as number[];
+    if (current.includes(contactId)) {
+      set(
+        "cc_contact_ids",
+        current.filter((id) => id !== contactId),
+      );
+    } else {
+      set("cc_contact_ids", [...current, contactId]);
+    }
+  };
 
   const loadLeadsFilePreview = async (file: File) => {
     setImportPreviewLoading(true);
@@ -143,6 +198,8 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
       if (form.location) payload.location = form.location;
       if (form.distributor_name)
         payload.distributor_name = form.distributor_name;
+      if (form.distributor_company_id)
+        payload.distributor_company_id = form.distributor_company_id;
       if (form.catalog_pitch_text)
         payload.catalog_pitch_text = form.catalog_pitch_text;
       if (form.samples_note) payload.samples_note = form.samples_note;
@@ -380,12 +437,12 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             </>
           )}
 
-          {/* STEP 2 — Distributor */}
+          {/* PAGE 2 — Distributeur */}
           {step === 1 && (
             <>
               <p className="text-sm text-gray-500">
-                Was this a distributor show? If so, all contacts are likely
-                their customers.
+                Was this a distributor show? If so, select the distributor from
+                your Companies to automatically link the campaign.
               </p>
 
               <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
@@ -393,7 +450,10 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
                   type="checkbox"
                   id="is_distributor"
                   checked={form.is_distributor_show}
-                  onChange={(e) => set("is_distributor_show", e.target.checked)}
+                  onChange={(e) => {
+                    set("is_distributor_show", e.target.checked);
+                    if (!e.target.checked) handleDistributorSelect(null);
+                  }}
                   className="w-4 h-4 accent-blue-600"
                 />
                 <label
@@ -406,18 +466,106 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
 
               {form.is_distributor_show && (
                 <>
+                  {/* Picker distributeur depuis Companies */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Distributor name
+                      Select distributor
+                      <span className="ml-2 text-xs font-normal text-gray-400">
+                        from your Companies (chain level = Distributor)
+                      </span>
                     </label>
-                    <input
-                      type="text"
-                      placeholder="ex: Sysco, US Foods..."
-                      value={form.distributor_name}
-                      onChange={(e) => set("distributor_name", e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    />
+                    {distributors.length === 0 ? (
+                      <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-yellow-700">
+                        ⚠️ No distributor found in your Companies.{" "}
+                        <a
+                          href="/companies"
+                          target="_blank"
+                          className="underline font-medium"
+                        >
+                          Add one →
+                        </a>
+                      </div>
+                    ) : (
+                      <select
+                        value={form.distributor_company_id ?? ""}
+                        onChange={(e) =>
+                          handleDistributorSelect(
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">— Select a distributor —</option>
+                        {distributors.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name}
+                            {d.market ? ` · ${d.market}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
+
+                  {/* CC suggérés depuis les contacts de la company */}
+                  {form.distributor_company_id && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Suggested CC contacts
+                        <span className="ml-2 text-xs font-normal text-gray-400">
+                          from the distributor's contact list
+                        </span>
+                      </label>
+                      {loadingContacts ? (
+                        <p className="text-sm text-gray-400">
+                          Loading contacts...
+                        </p>
+                      ) : companyContacts.length === 0 ? (
+                        <p className="text-sm text-gray-400">
+                          No contacts linked to this company yet.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {companyContacts.map((c) => (
+                            <div
+                              key={c.id}
+                              className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+                            >
+                              <input
+                                type="checkbox"
+                                id={`cc-${c.id}`}
+                                checked={(
+                                  form.cc_contact_ids as number[]
+                                ).includes(c.id)}
+                                onChange={() => toggleCcContact(c.id)}
+                                className="w-4 h-4 accent-blue-600"
+                              />
+                              <label
+                                htmlFor={`cc-${c.id}`}
+                                className="text-sm text-gray-700 flex-1 cursor-pointer"
+                              >
+                                <span className="font-medium">
+                                  {[c.first_name, c.last_name]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                                </span>
+                                {c.position && (
+                                  <span className="ml-2 text-xs text-gray-400">
+                                    {c.position}
+                                  </span>
+                                )}
+                                <span className="block text-xs text-gray-400">
+                                  {c.email}
+                                </span>
+                              </label>
+                              <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded">
+                                CC
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg">
                     <input
@@ -454,66 +602,20 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             </>
           )}
 
-          {/* STEP 3 — Catalogue */}
+          {/* PAGE 3 — Catalogue */}
           {step === 2 && (
-            <>
-              <p className="text-sm text-gray-500">
-                How do you want to present your catalogue in the emails?
-              </p>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Catalogue pitch
-                  <span className="ml-2 text-xs font-normal text-gray-400">
-                    (leave empty for generic fallback)
-                  </span>
-                </label>
-                <textarea
-                  rows={4}
-                  placeholder="ex: Our catalogue includes premium European charcuterie and cheese, designed for high-end foodservice and retail operations..."
-                  value={form.catalog_pitch_text}
-                  onChange={(e) => set("catalog_pitch_text", e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  If left empty: "Please find our product catalogue attached —
-                  you'll find our full range of references."
-                </p>
-              </div>
-
-              <div className="border-t pt-4">
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
-                  <input
-                    type="checkbox"
-                    id="offer_samples"
-                    checked={form.offer_samples}
-                    onChange={(e) => set("offer_samples", e.target.checked)}
-                    className="w-4 h-4 accent-blue-600"
-                  />
-                  <label
-                    htmlFor="offer_samples"
-                    className="text-sm font-medium text-gray-700"
-                  >
-                    Offer product samples in the email
-                  </label>
-                </div>
-
-                {form.offer_samples && (
-                  <div className="mt-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Samples details / instructions
-                    </label>
-                    <textarea
-                      rows={2}
-                      placeholder="ex: Just send us your shipping address and we'll get samples out within 48h."
-                      value={form.samples_note}
-                      onChange={(e) => set("samples_note", e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
-                    />
-                  </div>
-                )}
-              </div>
-            </>
+            <WizardCatalogueStep
+              distributorCompanyId={form.distributor_company_id}
+              distributorName={form.distributor_name}
+              selectedProductIds={selectedProductIds}
+              onSelectionChange={setSelectedProductIds}
+              catalogPitchText={form.catalog_pitch_text}
+              onPitchChange={(v) => set("catalog_pitch_text", v)}
+              offerSamples={form.offer_samples}
+              onOfferSamplesChange={(v) => set("offer_samples", v)}
+              samplesNote={form.samples_note}
+              onSamplesNoteChange={(v) => set("samples_note", v)}
+            />
           )}
 
           {/* STEP 4 — Your message */}

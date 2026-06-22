@@ -8,7 +8,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = 'a1b2c3d4e5f6'
+revision: str = 'b2c3d4e5f6a7'
 down_revision: Union[str, Sequence[str], None] = 'make_catalog_company_optional'
 branch_labels = None
 depends_on = None
