@@ -17,20 +17,12 @@ import {
   type CompanyContact,
 } from "../api/companies";
 import WizardCatalogueStep from "./WizardCatalogueStep";
+import WizardLeadsStep from "./WizardLeadsStep";
+import { aiConfirmImport, type EnrichedRow } from "../api/prospectImport";
 import type { Company } from "../types";
 
 type WizardProps = {
   onClose: () => void;
-};
-
-type ImportPreviewRow = {
-  email?: string;
-  first_name?: string;
-  last_name?: string;
-  company_name?: string;
-  position?: string;
-  _already_exists?: boolean;
-  [key: string]: unknown;
 };
 
 const STEPS = [
@@ -81,11 +73,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [leadsFile, setLeadsFile] = useState<File | null>(null);
-  const [leadsPreview, setLeadsPreview] = useState<{
-    imported: number;
-    skipped: number;
-  } | null>(null);
+  const [stagedRows, setStagedRows] = useState<EnrichedRow[]>([]);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [createdCampaignId, setCreatedCampaignId] = useState<number | null>(
     null,
@@ -97,15 +85,6 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
     id: number;
     name: string;
   } | null>(null);
-  const [importPreviewLoading, setImportPreviewLoading] = useState(false);
-  const [importPreviewError, setImportPreviewError] = useState("");
-  const [importPreviewWarnings, setImportPreviewWarnings] = useState<string[]>(
-    [],
-  );
-  const [importPreviewRows, setImportPreviewRows] = useState<
-    ImportPreviewRow[]
-  >([]);
-  const [importPreviewTotalRows, setImportPreviewTotalRows] = useState(0);
   const [distributors, setDistributors] = useState<Company[]>([]);
   const [companyContacts, setCompanyContacts] = useState<CompanyContact[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
@@ -155,30 +134,6 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
     }
   };
 
-  const loadLeadsFilePreview = async (file: File) => {
-    setImportPreviewLoading(true);
-    setImportPreviewError("");
-    setImportPreviewWarnings([]);
-    setImportPreviewRows([]);
-    setImportPreviewTotalRows(0);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await api.post("/api/prospects/import/preview", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setImportPreviewWarnings(res.data.warnings ?? []);
-      setImportPreviewRows(res.data.sample_data ?? []);
-      setImportPreviewTotalRows(res.data.total_rows ?? 0);
-    } catch {
-      setImportPreviewError(
-        "Impossible d'analyser ce fichier. Vérifie que les colonnes email, first_name et last_name sont présentes.",
-      );
-    } finally {
-      setImportPreviewLoading(false);
-    }
-  };
-
   const handleCreate = async () => {
     setLoading(true);
     setError("");
@@ -217,22 +172,15 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
       const created = await createCampaign(payload);
       setCreatedCampaignId(created.id);
 
-      // Import leads si fichier sélectionné
-      if (leadsFile) {
-        const formData = new FormData();
-        formData.append("file", leadsFile);
+      // Import AI leads si des rows ont été stagées
+      if (stagedRows.length > 0) {
         try {
-          const res = await api.post(
-            `/api/prospects/import?campaign_id=${created.id}`,
-            formData,
-            { headers: { "Content-Type": "multipart/form-data" } },
-          );
-          setLeadsPreview({
-            imported: res.data.total_rows,
-            skipped: res.data.skipped ?? 0,
+          const res = await aiConfirmImport({
+            rows: stagedRows,
+            update_existing: false,
+            campaign_id: created.id,
           });
-          // Peupler la liste de preview avec les prospects importés
-          if (res.data.prospect_ids?.length > 0) {
+          if (res.prospect_ids?.length > 0) {
             const contactsRes = await api.get(
               `/api/campaigns/${created.id}/contacts/`,
             );
@@ -705,156 +653,10 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
 
           {/* STEP 5 — Import leads */}
           {step === 4 && (
-            <>
-              <p className="text-sm text-gray-500">
-                Import your contacts from the trade show. Accepted formats: CSV,
-                XLSX, XLS.
-              </p>
-
-              <div
-                onClick={() => document.getElementById("leads-upload")?.click()}
-                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition"
-              >
-                <p className="text-3xl mb-2">📋</p>
-                {leadsFile ? (
-                  <>
-                    <p className="text-sm font-medium text-green-700">
-                      ✅ {leadsFile.name}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Click to change
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-gray-600 font-medium">
-                      Click to upload your leads file
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      CSV, XLSX, XLS - exporter from the show scanner
-                    </p>
-                  </>
-                )}
-                <input
-                  id="leads-upload"
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0] || null;
-                    setLeadsFile(file);
-                    if (!file) {
-                      setImportPreviewWarnings([]);
-                      setImportPreviewRows([]);
-                      setImportPreviewTotalRows(0);
-                      setImportPreviewError("");
-                      return;
-                    }
-                    await loadLeadsFilePreview(file);
-                  }}
-                />
-              </div>
-
-              {leadsPreview && (
-                <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-700">
-                  ⏳ Importing contacts... This may take a moment.
-                </div>
-              )}
-
-              {importPreviewError && (
-                <div className="p-4 bg-red-50 rounded-lg text-sm text-red-700">
-                  ❌ {importPreviewError}
-                </div>
-              )}
-
-              {importPreviewTotalRows > 0 &&
-                !importPreviewLoading &&
-                !importPreviewError && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-green-50 rounded-lg text-sm text-green-700 flex-1">
-                        ✅ <strong>{importPreviewTotalRows}</strong> contacts
-                        detected in the file
-                      </div>
-                    </div>
-
-                    {importPreviewWarnings.length > 0 && (
-                      <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
-                        <ul className="text-sm text-yellow-700 space-y-1">
-                          {importPreviewWarnings.map((w, i) => (
-                            <li key={`w-${i}`}>{w}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {importPreviewRows.length > 0 && (
-                      <div className="border rounded-lg overflow-hidden">
-                        <div className="px-3 py-2 bg-gray-50 border-b text-xs font-medium text-gray-500 uppercase tracking-wide">
-                          Overlook of first five contacts in the file
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full text-sm">
-                            <thead className="bg-white border-b">
-                              <tr>
-                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
-                                  Name
-                                </th>
-                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
-                                  Email
-                                </th>
-                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
-                                  Company
-                                </th>
-                                <th className="text-left px-3 py-2 text-gray-500 font-medium">
-                                  Position
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {importPreviewRows.map((row, i) => (
-                                <tr
-                                  key={`${row.email ?? "row"}-${i}`}
-                                  className="border-b last:border-0"
-                                >
-                                  <td className="px-3 py-2 text-gray-700">
-                                    <span>
-                                      {[row.first_name, row.last_name]
-                                        .filter(Boolean)
-                                        .join(" ") || "—"}
-                                    </span>
-                                    {row._already_exists && (
-                                      <span className="ml-2 text-xs bg-yellow-500 text-yellow-700 px-1.5 py-0.5 rounded">
-                                        (already in database)
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-2 text-gray-500">
-                                    {String(row.email || "-")}
-                                  </td>
-                                  <td className="px-3 py-2 text-gray-500">
-                                    {String(row.company || "-")}
-                                  </td>
-                                  <td className="px-3 py-2 text-gray-500">
-                                    {String(row.position || "-")}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-              {!leadsFile && (
-                <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-500">
-                  💡 No file? No problem. You can add contacts one by one from
-                  the
-                </div>
-              )}
-            </>
+            <WizardLeadsStep
+              onRowsReady={(rows) => setStagedRows(rows)}
+              readyRowCount={stagedRows.length}
+            />
           )}
 
           {/* STEP 6 — Attachments */}
