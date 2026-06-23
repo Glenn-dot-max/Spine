@@ -15,6 +15,7 @@ from .followups import router as followups_router
 from .companies import router as companies_router
 from .distributor_catalogs import router as distributor_catalogs_router
 from . import email_templates
+from .ai_tools import router as ai_tools_router
 
 # Create the main API router
 api_router = APIRouter()
@@ -33,3 +34,4 @@ api_router.include_router(followups_router, prefix="/api")
 api_router.include_router(email_templates.router, prefix="/api")
 api_router.include_router(companies_router)
 api_router.include_router(distributor_catalogs_router)
+api_router.include_router(ai_tools_router)

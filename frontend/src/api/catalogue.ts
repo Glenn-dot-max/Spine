@@ -57,6 +57,22 @@ export type PDFImportPreview = {
   warnings: string[];
 };
 
+export type PDFCreditCheck = {
+  num_pages: number;
+  estimated_mode: "text" | "vision";
+  requires_confirmation: boolean;
+  warning_message: string;
+};
+
+export const checkPDFCredits = async (file: File): Promise<PDFCreditCheck> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await api.post("/api/products/import/pdf/check", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
 export const previewProductsPDF = async (
   file: File,
 ): Promise<PDFImportPreview> => {
@@ -226,10 +242,22 @@ export const importPDFToCatalog = async (
   const formData = new FormData();
   formData.append("file", file);
   formData.append("catalog_name", catalogName);
-  if (companyId) formData.append("company_id", catalogName);
+  if (companyId) formData.append("company_id", String(companyId));
   const res = await api.post("/api/products/import/pdf/to-catalog", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
+  return res.data;
+};
+
+export const updateDistributorCatalog = async (
+  id: number,
+  data: {
+    name?: string;
+    notes?: string;
+    company_id?: number | null;
+  },
+): Promise<DistributorCatalog> => {
+  const res = await api.patch(`/api/distributor-catalogs/${id}/`, data);
   return res.data;
 };
 

@@ -88,24 +88,46 @@ def _is_text_sufficent(text: str, num_pages: int) -> bool:
 
 def _pdf_pages_to_images(file_bytes: bytes) -> List[str]:
     """
-    Convertit chaque page du PDF en PNG base64 via pymupdf.
-    Résolution 150 DPI — suffisant pour la lecture Haiku, léger en tokens.
+    Convert each PDF page to JPEG base64 via pymupdf.
+    Resolution: 96 DPI (Matrix 1.33x) — readable by Haiku Vision, well under Anthropic 5 MB/image limit.
+    Images exceeding 4 MB after encoding are skipped with a warning rather than crashing.
 
     Returns:
-        Liste de strings base64 (une par page).
+        List of base64 strings (one per page).
     """
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     images_b64 = []
 
+    # Anthropic hard limit: 5 MB per image. We target < 4 MB to stay safe.
+    MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4 MB
+
     num_pages = min(len(doc), MAX_VISION_PAGES)
     for page_num in range(num_pages):
         page = doc[page_num]
-        # 150 DPI = matrix 1.5x (72 DPI natif x 1.5 = 108 DPI, x2 = 144)
-        mat = fitz.Matrix(2.0, 2.0)
+        # 96 DPI = matrix 1.33x — good balance between readability and file size
+        # PNG at 2x (old value) produced 5-15 MB files for large-format flyers.
+        mat = fitz.Matrix(1.33, 1.33)
         pix = page.get_pixmap(matrix=mat)
-        png_bytes = pix.tobytes("png")
-        images_b64.append(base64.standard_b64encode(png_bytes).decode("utf-8"))
-    
+
+        # Hard cap: if either dimension exceeds 1800px, downscale to fit.
+        # Anthropic Vision reads text fine at 1200-1800px. Above that = wasted tokens + risk of 400.
+        MAX_DIM = 1800
+        if pix.width > MAX_DIM or pix.height > MAX_DIM:
+            scale = MAX_DIM / max(pix.width, pix.height)
+            mat2 = fitz.Matrix(1.33 * scale, 1.33 * scale)
+            pix = page.get_pixmap(matrix=mat2)
+
+        # JPEG is 5-10x smaller than PNG for typical catalog/flyer content
+        jpeg_bytes = pix.tobytes("jpeg", jpg_quality=85)
+
+        if len(jpeg_bytes) > MAX_IMAGE_BYTES:
+            # Page too large even at reduced res — skip it rather than crash Anthropic
+            print(f"[PDF EXTRACTOR] Page {page_num + 1} skipped: {len(jpeg_bytes) / 1024 / 1024:.1f} MB > 4 MB limit")
+            continue
+
+        print(f"[PDF EXTRACTOR] Page {page_num + 1}: {pix.width}x{pix.height}px, {len(jpeg_bytes) / 1024:.0f} KB")
+        images_b64.append(base64.standard_b64encode(jpeg_bytes).decode("utf-8"))
+
     doc.close()
     return images_b64
 
@@ -131,7 +153,7 @@ def _extract_products_from_images(images_b64: List[str]) -> List[ExtractedProduc
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": "image/png",
+                "media_type": "image/jpeg",
                 "data": img_b64
             }
         })
@@ -157,11 +179,18 @@ Example: [{"item_number": "CLOV-001", "name": "Dijon Mustard", "brand": "Clovis"
 """
     })
 
-    message = client.messages.create(
-        model="claude-haiku-4-5",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": content}]
-    )
+    try:
+        message = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=8192,  # raised from 4096 — large catalogs need more output tokens
+            messages=[{"role": "user", "content": content}]
+        )
+    except anthropic.BadRequestError as e:
+        # Anthropic rejected the request (image too large, too many tokens, etc.)
+        raise ValueError(
+            f"Anthropic rejected the request: {str(e)}. "
+            "Try a smaller PDF or reduce the number of pages."
+        )
 
     return _parse_haiku_response(message.content[0].text)
 
@@ -176,9 +205,10 @@ def _extract_products_from_text(raw_text: str) -> List[ExtractedProduct]:
     """
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    # Troncature à 15 000 chars pour rester dans les limites de tokens
-    if len(raw_text) > 15_000:
-        raw_text = raw_text[:15_000] + "\n[... contenu tronqué ...]"
+    # Truncate at 60 000 chars (~100 pages of dense catalog text).
+    # 15 000 was too aggressive — a 36-page catalog easily exceeds it.
+    if len(raw_text) > 60_000:
+        raw_text = raw_text[:60_000] + "\n[... content truncated ...]"
     
     prompt = f"""Extract all products from this product catalog text and return them as JSON array.
 
@@ -195,7 +225,7 @@ CATALOG TEXT:
     
     message = client.messages.create(
         model="claude-haiku-4-5",
-        max_tokens=4096,
+        max_tokens=8192,
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -207,28 +237,84 @@ CATALOG TEXT:
 
 def _parse_haiku_response(response_text: str) -> List[ExtractedProduct]:
     """
-    Nettoie la réponse Haiku, parse le JSON, valide avec Pydantic, dédoublonne.
+    Parse Haiku's response into a list of ExtractedProduct.
 
-    Returns:
-        Liste de ExtractedProduct validés et dédoublonnés par item_number.
+    Handles 4 cases in order:
+      1. Clean JSON array (ideal)
+      2. JSON array inside ```json ... ``` code block
+      3. JSON array found anywhere in surrounding prose
+      4. TRUNCATED response — salvage all complete {objects} character by character
+         (happens when the catalog is large and Haiku hits max_tokens mid-array)
     """
-    # Nettoyage backticks éventuels
     response_text = response_text.strip()
-    response_text = re.sub(r"^```json\s*", "", response_text)
-    response_text = re.sub(r"^```\s*", "", response_text)
-    response_text = re.sub(r"\s*```$", "", response_text)
 
+    # Strip ```json ... ``` or ``` ... ``` code block markers (Haiku adds these despite instructions)
+    response_text = re.sub(r'^```(?:json)?\s*', '', response_text)
+    response_text = re.sub(r'\s*```\s*$', '', response_text)
+    response_text = response_text.strip()
+
+    raw_list = None
+
+    # Attempt 1: direct JSON parse
     try:
         raw_list = json.loads(response_text)
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 2: find a complete JSON array anywhere in the text
+    if raw_list is None:
+        array_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+        if array_match:
+            try:
+                raw_list = json.loads(array_match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+    # Attempt 3: Haiku wrapped in {"products": [...]}
+    if raw_list is None:
+        obj_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if obj_match:
+            try:
+                obj = json.loads(obj_match.group(0))
+                raw_list = next((v for v in obj.values() if isinstance(v, list)), None)
+            except json.JSONDecodeError:
+                pass
+
+    # Attempt 4: TRUNCATED response — walk character by character, salvage complete objects.
+    # This fires when max_tokens cuts Haiku mid-JSON (e.g. "formats": <cut>).
+    if raw_list is None:
+        salvaged = []
+        depth = 0
+        obj_start = None
+        for i, ch in enumerate(response_text):
+            if ch == '{':
+                if depth == 0:
+                    obj_start = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0 and obj_start is not None:
+                    fragment = response_text[obj_start:i + 1]
+                    try:
+                        obj = json.loads(fragment)
+                        if isinstance(obj, dict):
+                            salvaged.append(obj)
+                    except json.JSONDecodeError:
+                        pass
+                    obj_start = None
+        if salvaged:
+            print(f"[PDF EXTRACTOR] Truncated response — salvaged {len(salvaged)} complete objects")
+            raw_list = salvaged
+
+    if raw_list is None:
         raise ValueError(
-            f"Haiku n'a pas retourné de JSON valide : {str(e)}\n"
-            f"Début de réponse : {response_text[:300]}"
+            f"Haiku did not return parseable JSON.\n"
+            f"Response preview: {response_text[:400]}"
         )
-    
+
     if not isinstance(raw_list, list):
-        raise ValueError("La réponse Haiku n'est pas un tableau JSON.")
-    
+        raise ValueError("Haiku response is not a JSON array.")
+
     products = []
     seen = set()
     for item in raw_list:
@@ -238,9 +324,9 @@ def _parse_haiku_response(response_text: str) -> List[ExtractedProduct]:
             if key not in seen:
                 seen.add(key)
                 products.append(product)
-        except Exception as e:
+        except Exception:
             continue
-        
+
     return products
 
 # ----------------------------------------------------
@@ -276,11 +362,12 @@ def extract_products_with_ai(file_bytes: bytes) -> List[ExtractedProduct]:
     raw_text = _extract_text_from_pdf(file_bytes)
 
     if _is_text_sufficent(raw_text, num_pages):
-        # PDF natif avec texte -> mode texte (moins de tokens, plus rapide)
+        # PDF native with text -> text mode (fewer tokens, faster)
         products = _extract_products_from_text(raw_text)
         if not products:
+            # Text extraction returned nothing — fallback to Vision
             images_b64 = _pdf_pages_to_images(file_bytes)
-            if not images_b64:
+            if images_b64:  # fixed: was "if not images_b64" (inverted condition)
                 return _extract_products_from_images(images_b64)
         return products
         

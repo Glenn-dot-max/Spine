@@ -29,9 +29,11 @@ import {
   deleteDistributorCatalog,
   uploadCatalogPdf,
   getCatalogPdfBlobUrl,
+  checkPDFCredits,
   type PDFExtractedProduct,
   type PDFImportPreview,
   type PDFToCatalogResult,
+  // type PDFCreditCheck,
 } from "../api/catalogue";
 import { getCompanies } from "../api/companies";
 import type {
@@ -65,6 +67,17 @@ type Props = {
   onSamplesNoteChange: (v: string) => void;
 };
 
+const CSV_TEMPLATE_REQUIRED_COLUMNS = ["item_number", "name"];
+const CSV_TEMPLATE_OPTIONAL_COLUMNS = [
+  "brand",
+  "short_description",
+  "category",
+  "formats",
+  "price_range",
+  "certifications",
+  "segments",
+];
+
 export default function WizardCatalogueStep({
   distributorCompanyId,
   distributorName,
@@ -78,6 +91,21 @@ export default function WizardCatalogueStep({
   onSamplesNoteChange,
 }: Props) {
   const [subTab, setSubTab] = useState<SubTab>("products");
+
+  // null = choice screen | "existing" = use loaded catalogue | "import" = go to import tab
+  const [catalogMode, setCatalogMode] = useState<null | "existing" | "import">(
+    null,
+  );
+
+  // Which catalogue was picked in the existing flow: null = picker shown, "general" or catalog id
+  const [selectedExistingCatalogId, setSelectedExistingCatalogId] = useState<
+    number | "general" | null
+  >(null);
+  // Products from the picked distributor catalog (mapped for display)
+  const [pickedCatalogProducts, setPickedCatalogProducts] = useState<
+    CatalogProduct[]
+  >([]);
+  const [loadingPickedCatalog, setLoadingPickedCatalog] = useState(false);
 
   // ── Produits ──────────────────────────────────────────────────────────────
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
@@ -101,6 +129,7 @@ export default function WizardCatalogueStep({
   } | null>(null);
   const [pdfToCatalogResult, setPdfToCatalogResult] =
     useState<PDFToCatalogResult | null>(null);
+  const [pdfCreditChecking, setPdfCreditChecking] = useState(false);
   const [catalogName, setCatalogName] = useState("");
   const [catalogCompanyId, setCatalogCompanyId] = useState<number | "">("");
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -138,10 +167,6 @@ export default function WizardCatalogueStep({
         const products = Array.isArray(data) ? (data as CatalogProduct[]) : [];
         setCatalogProducts(products);
         setCatalogSource("distributor");
-        // Sélectionner tous par défaut si vide
-        if (selectedProductIds.length === 0) {
-          onSelectionChange(products.map((p) => p.id));
-        }
       } else {
         const data = await getProducts();
         const products: CatalogProduct[] = data.map((p) => ({
@@ -150,9 +175,6 @@ export default function WizardCatalogueStep({
         }));
         setCatalogProducts(products);
         setCatalogSource("general");
-        if (selectedProductIds.length === 0) {
-          onSelectionChange(products.map((p) => p.id));
-        }
       }
     } catch {
       setCatalogProducts([]);
@@ -179,6 +201,44 @@ export default function WizardCatalogueStep({
     }
   };
 
+  // Load a specific catalogue and auto-select all its products
+  const handlePickExistingCatalog = async (id: number | "general") => {
+    setSelectedExistingCatalogId(id);
+    if (id === "general") {
+      // General catalogue: products already loaded in catalogProducts
+      onSelectionChange(catalogProducts.map((p) => p.id));
+      setPickedCatalogProducts(catalogProducts);
+      return;
+    }
+    // Distributor catalog: load full detail then map items to CatalogProduct
+    setLoadingPickedCatalog(true);
+    try {
+      const data = await getDistributorCatalog(id);
+      const products: CatalogProduct[] = (data.items ?? []).map(
+        (item: import("../types").DistributorCatalogItem) => ({
+          id: item.product_id,
+          name: item.product_name ?? `Product #${item.product_id}`,
+          item_number: item.product_item_number ?? "",
+          brand: item.product_brand,
+          category: item.product_category,
+          source: "distributor_catalog" as const,
+        }),
+      );
+      setPickedCatalogProducts(products);
+      onSelectionChange(products.map((p) => p.id));
+    } catch {
+      /* silencieux */
+    } finally {
+      setLoadingPickedCatalog(false);
+    }
+  };
+
+  // Products currently active in the selection view
+  const displayProducts =
+    selectedExistingCatalogId === "general"
+      ? catalogProducts
+      : pickedCatalogProducts;
+
   const toggleProduct = (id: number) => {
     onSelectionChange(
       selectedProductIds.includes(id)
@@ -191,6 +251,24 @@ export default function WizardCatalogueStep({
   const handleImport = async () => {
     if (!importFile) return;
     if (importType === "pdf") {
+      // Step 1: fast credit check (no AI call)
+      setPdfCreditChecking(true);
+      try {
+        const check = await checkPDFCredits(importFile);
+        if (check.requires_confirmation) {
+          const ok = window.confirm(check.warning_message);
+          if (!ok) return;
+        }
+      } catch {
+        alert(
+          "Unable to estimate AI credit usage for this PDF. Please try again.",
+        );
+        return;
+      } finally {
+        setPdfCreditChecking(false);
+      }
+
+      // Step 2: AI extraction
       setPdfPreviewing(true);
       setPdfPreview(null);
       setImportResult(null);
@@ -365,104 +443,261 @@ export default function WizardCatalogueStep({
       {/* ── ONGLET PRODUITS ── */}
       {subTab === "products" && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-gray-500 flex-1">
-              Select which products to highlight in this campaign.
-            </p>
-            <span
-              className={`text-xs px-2 py-1 rounded-full font-medium ${
-                catalogSource === "distributor"
-                  ? "bg-blue-50 text-blue-700"
-                  : "bg-gray-100 text-gray-500"
-              }`}
-            >
-              {catalogSource === "distributor"
-                ? `🏪 ${distributorName} catalog`
-                : "📦 General catalog"}
-            </span>
-          </div>
-
-          {loadingCatalog ? (
-            <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-400">
-              Loading products...
-            </div>
-          ) : catalogProducts.length === 0 ? (
-            <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-yellow-700">
-              ⚠️ No products found.{" "}
-              <button
-                type="button"
-                onClick={() => setSubTab("import")}
-                className="underline font-medium"
-              >
-                Import your catalogue →
-              </button>
-            </div>
-          ) : (
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs text-gray-500">
-                  {selectedProductIds.length} / {catalogProducts.length}{" "}
-                  products selected
-                </span>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onSelectionChange(catalogProducts.map((p) => p.id))
-                    }
-                    className="text-xs text-blue-600 hover:underline"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelectionChange([])}
-                    className="text-xs text-gray-400 hover:underline"
-                  >
-                    Deselect all
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-1 max-h-48 overflow-y-auto border rounded-lg p-1">
-                {catalogProducts.map((p) => (
-                  <div
-                    key={p.id}
-                    className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-50 transition ${
-                      selectedProductIds.includes(p.id)
-                        ? "bg-blue-50/40"
-                        : "opacity-50"
-                    }`}
-                    onClick={() => toggleProduct(p.id)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedProductIds.includes(p.id)}
-                      onChange={() => toggleProduct(p.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-4 h-4 accent-blue-600 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">
-                        {p.name}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {[p.item_number, p.brand, p.category]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    </div>
-                    {p.source === "distributor_catalog" && (
-                      <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded shrink-0">
-                        dist.
-                      </span>
-                    )}
+          {/* ── Choice screen — shown until user picks a mode ── */}
+          {catalogMode === null && (
+            <>
+              <p className="text-sm text-gray-500">
+                How do you want to set up the catalogue for this campaign?
+              </p>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                {/* Option A — use existing Spine catalogue */}
+                <button
+                  type="button"
+                  onClick={() => setCatalogMode("existing")}
+                  disabled={loadingCatalog}
+                  className="flex flex-col items-start gap-2 p-4 border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition text-left"
+                >
+                  <span className="text-2xl">📦</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">
+                      Use an existing catalogue
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {loadingCatalog
+                        ? "Loading..."
+                        : catalogProducts.length > 0
+                          ? `${catalogProducts.length} products available${
+                              catalogSource === "distributor"
+                                ? ` from ${distributorName}`
+                                : " (general)"
+                            }`
+                          : "No products loaded yet"}
+                    </p>
                   </div>
-                ))}
+                </button>
+
+                {/* Option B — import a new catalogue */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatalogMode("import");
+                    setSubTab("import");
+                  }}
+                  className="flex flex-col items-start gap-2 p-4 border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition text-left"
+                >
+                  <span className="text-2xl">📤</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">
+                      Import a new catalogue
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      CSV, Excel or PDF — AI-powered extraction
+                    </p>
+                  </div>
+                </button>
               </div>
-            </div>
+            </>
           )}
 
-          {/* Pitch + samples */}
+          {/* ── Existing — step 1: catalogue picker ── */}
+          {catalogMode === "existing" && selectedExistingCatalogId === null && (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCatalogMode(null)}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  ← Back
+                </button>
+                <p className="text-sm text-gray-500">
+                  Which catalogue do you want to use for this campaign?
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                {/* General catalogue card */}
+                <button
+                  type="button"
+                  onClick={() => handlePickExistingCatalog("general")}
+                  disabled={loadingCatalog}
+                  className="w-full flex items-center gap-3 p-3 border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition text-left"
+                >
+                  <span className="text-xl">📦</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800">
+                      General catalogue
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {loadingCatalog
+                        ? "Loading..."
+                        : `${catalogProducts.length} products`}
+                    </p>
+                  </div>
+                  <span className="text-xs text-gray-300">→</span>
+                </button>
+
+                {/* One card per distributor catalog */}
+                {catalogs.length === 0 && (
+                  <p className="text-xs text-gray-400 text-center py-2">
+                    No distributor catalogues yet —{" "}
+                    <button
+                      type="button"
+                      onClick={() => setSubTab("catalogs")}
+                      className="underline"
+                    >
+                      create one
+                    </button>
+                  </p>
+                )}
+                {catalogs.map((cat) => {
+                  const company = companies.find(
+                    (c) => c.id === cat.company_id,
+                  );
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => handlePickExistingCatalog(cat.id)}
+                      className="w-full flex items-center gap-3 p-3 border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition text-left"
+                    >
+                      <span className="text-xl">🏪</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800">
+                          {cat.name}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {[
+                            company?.name,
+                            cat.item_count != null
+                              ? `${cat.item_count} products`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-300">→</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* ── Existing — step 2: product selection ── */}
+          {catalogMode === "existing" && selectedExistingCatalogId !== null && (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedExistingCatalogId(null);
+                    onSelectionChange([]);
+                  }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  ← Change catalogue
+                </button>
+                <p className="text-sm text-gray-500 flex-1">
+                  Select which products to highlight in this campaign.
+                </p>
+                <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-50 text-blue-700">
+                  {selectedExistingCatalogId === "general"
+                    ? "📦 General"
+                    : `🏪 ${
+                        catalogs.find((c) => c.id === selectedExistingCatalogId)
+                          ?.name ?? "Catalog"
+                      }`}
+                </span>
+              </div>
+
+              {loadingPickedCatalog ? (
+                <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-400">
+                  Loading products...
+                </div>
+              ) : displayProducts.length === 0 ? (
+                <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-yellow-700">
+                  ⚠️ No products in this catalogue.{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCatalogMode("import");
+                      setSubTab("import");
+                    }}
+                    className="underline font-medium"
+                  >
+                    Import products →
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs text-gray-500">
+                      {selectedProductIds.length} / {displayProducts.length}{" "}
+                      products selected
+                    </span>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onSelectionChange(displayProducts.map((p) => p.id))
+                        }
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectionChange([])}
+                        className="text-xs text-gray-400 hover:underline"
+                      >
+                        Deselect all
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto border rounded-lg p-1">
+                    {displayProducts.map((p) => (
+                      <div
+                        key={p.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-50 transition ${
+                          selectedProductIds.includes(p.id)
+                            ? "bg-blue-50/40"
+                            : "opacity-50"
+                        }`}
+                        onClick={() => toggleProduct(p.id)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedProductIds.includes(p.id)}
+                          onChange={() => toggleProduct(p.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-4 h-4 accent-blue-600 shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {p.name}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {[p.item_number, p.brand, p.category]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                        {p.source === "distributor_catalog" && (
+                          <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded shrink-0">
+                            dist.
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Pitch + samples — always visible regardless of mode */}
           <div className="border-t pt-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Catalogue pitch
@@ -535,19 +770,69 @@ export default function WizardCatalogueStep({
           </div>
 
           {importType === "csv" && (
-            <button
-              type="button"
-              onClick={downloadTemplate}
-              className="text-sm text-blue-600 underline"
-            >
-              ↓ Download Excel template
-            </button>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={downloadTemplate}
+                className="text-sm text-blue-600 underline"
+              >
+                ↓ Download Excel template
+              </button>
+
+              <div className="p-3 border border-gray-200 rounded-lg bg-gray-50">
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+                  CSV template columns
+                </p>
+
+                <div className="mb-2">
+                  <p className="text-xs text-gray-500 mb-1">Required</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CSV_TEMPLATE_REQUIRED_COLUMNS.map((col) => (
+                      <span
+                        key={col}
+                        className="px-2 py-0.5 rounded bg-red-50 text-red-700 text-xs font-mono"
+                      >
+                        {col}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">
+                    Optional (recommended)
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CSV_TEMPLATE_OPTIONAL_COLUMNS.map((col) => (
+                      <span
+                        key={col}
+                        className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono"
+                      >
+                        {col}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Header example:
+                  item_number,name,brand,short_description,category,formats,price_range,certifications,segments
+                </p>
+              </div>
+            </div>
           )}
           {importType === "pdf" && (
-            <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
-              🤖 The catalogue will be analysed by{" "}
-              <strong>Claude Haiku Vision</strong> — automatic extraction of all
-              visible products.
+            <div className="space-y-2">
+              <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+                🤖 The catalogue will be analysed by{" "}
+                <strong>Claude Haiku Vision</strong> — automatic extraction of
+                all visible products.
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                ⚠️ For large PDFs/flyers (20+ pages), AI extraction may miss
+                part of the catalogue. For complete and reliable import, prefer
+                the CSV / Excel template.
+              </div>
             </div>
           )}
 
@@ -561,6 +846,7 @@ export default function WizardCatalogueStep({
                 setPdfPreview(null);
                 setImportResult(null);
                 setPdfToCatalogResult(null);
+                setPdfCreditChecking(false);
               }}
               className="w-full text-sm text-gray-600"
             />
@@ -575,16 +861,20 @@ export default function WizardCatalogueStep({
             <button
               type="button"
               onClick={handleImport}
-              disabled={!importFile || importing || pdfPreviewing}
+              disabled={
+                !importFile || importing || pdfPreviewing || pdfCreditChecking
+              }
               className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              {pdfPreviewing
-                ? "⏳ Analysing..."
-                : importType === "pdf"
-                  ? "🔍 Analyze with AI"
-                  : importing
-                    ? "Importing..."
-                    : "Import"}
+              {pdfCreditChecking
+                ? "⏳ Checking cost..."
+                : pdfPreviewing
+                  ? "⏳ Analysing..."
+                  : importType === "pdf"
+                    ? "🔍 Analyze with AI"
+                    : importing
+                      ? "Importing..."
+                      : "Import"}
             </button>
           )}
 

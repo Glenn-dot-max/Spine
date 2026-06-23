@@ -2,19 +2,18 @@
 Product import routes - Upload Excel/CSV files to bulk import products into the system.
 """
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Form
 from sqlalchemy.orm import Session
 import pandas as pd
 import io
-from typing import List
+from typing import List, Optional
 
 from app.db import get_db
 from app.models.user import User
 from app.models.product import Product
-from app.schemas import ProductImportResult, ProductImportPreview, PDFImportPreview
+from app.schemas import ProductImportResult, ProductImportPreview, PDFImportPreview, PDFToCatalogResult, PDFCreditCheck
 from app.api.deps import get_current_user
 from app.services.pdf_ai_extractor import extract_products_with_ai
-from app.schemas import ProductImportResult, ProductImportPreview, PDFImportPreview, PDFToCatalogResult
 from app.models.distributor_catalog import DistributorCatalog, DistributorCatalogItem
 import os
 
@@ -312,6 +311,77 @@ async def export_products(
         }
     )
 
+# Credut thresholds:
+# Vision mode > 5 pages -> warning (each page 2000 - 4000 tokens as image)
+# Text mode > 20 pages -> warning (still cheap, but worth flagging)
+_VISION_WARN_PAGES = 5
+_TEXT_WARN_PAGES = 20
+
+@router.post("/import/pdf/check", response_model=PDFCreditCheck)
+async def check_pdf_credits(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """
+    Fast pre-flight check before calling Haiku.
+    Counts pages + estimates extraction mode without making any AI call.
+    Returns a credit warning when the PDF is large enough to matter.
+    """
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "File must be a PDF")
+    
+    contents = await file.read()
+
+    # Count pages and estimate text density
+    import io as _io
+    import pdfplumber as _pdfplumber
+    num_pages = 1
+    raw_text = ""
+    try:
+        with _pdfplumber.open(_io.BytesIO(contents)) as pdf:
+            num_pages = len(pdf.pages)
+            for page in pdf.pages[:5]:
+                t = page.extract_text()
+                if t:
+                    raw_text += t
+    except Exception:
+        pass
+
+    avg_chars = len(raw_text) / max(min(num_pages, 5), 1)
+    estimated_mode = "text" if avg_chars >= 100 else "vision"
+
+    # Build warning based on mode + page count
+    requires_confirmation = False
+    warning_message = ""
+
+    if estimated_mode == "vision" and num_pages > _VISION_WARN_PAGES:
+        requires_confirmation = True
+        warning_message = (
+            f"This PDF has {num_pages} pages and will be processed in Vision mode "
+            f"(image-based AI). This uses approximately {num_pages * 3} 000 tokens "
+            f"and may consume a significant portion of your API credits. "
+            f"For large documents, some products may be missed. "
+            f"Prefer CSV/Excel import for complete results. "
+            f"Do you want to proceed?"
+        )
+    elif estimated_mode == "text" and num_pages > _TEXT_WARN_PAGES:
+        requires_confirmation = True
+        warning_message = (
+            f"This PDF has {num_pages} pages. Text extraction is efficient, "
+            f"but this is a large file (~{num_pages * 600 // 1000}k characters). "
+            f"This will use a moderate amount of API credits. "
+            f"Extraction can be partial on very long files. "
+            f"Prefer CSV/Excel import for full catalogue coverage. "
+            f"Do you want to proceed?"
+        )
+
+    return PDFCreditCheck(
+        num_pages=num_pages,
+        estimated_mode=estimated_mode,
+        requires_confirmation=requires_confirmation,
+        warning_message=warning_message,
+    )
+
 @router.post("/import/pdf/preview", response_model=PDFImportPreview)
 async def preview_pdf_import(
     file: UploadFile = File(...),
@@ -323,7 +393,8 @@ async def preview_pdf_import(
     Retourne les produits détectés sans les sauvegarder en base.
     Le frontend peut alors confirmer ou corriger avant l'import définitif.
     """
-    if not file.filename.endswith('.pdf'):
+    # Case-insensitive check (.pdf and .PDF both accepted)
+    if not (file.filename or "").lower().endswith('.pdf'):
         raise HTTPException(400, "File must be a PDF")
     
     contents = await file.read()
@@ -332,8 +403,13 @@ async def preview_pdf_import(
     try:
         extracted = extract_products_with_ai(contents)
     except ValueError as e:
+        # Log the full error so it's visible in the backend terminal
+        print(f"[PDF PREVIEW] ValueError: {e}")
         raise HTTPException(400, str(e))
     except Exception as e:
+        import traceback
+        print(f"[PDF PREVIEW] Unexpected error: {e}")
+        traceback.print_exc()
         raise HTTPException(500, f"Extraction error: {str(e)}")
     
 
@@ -354,8 +430,16 @@ async def preview_pdf_import(
     avg_chars = len(raw_text) / max(num_pages, 1)
     extraction_mode = "text" if avg_chars >= 100 else "vision"
 
-    if num_pages > 15:
-        warnings.append(f"⚠️ This PDF has {num_pages} pages.")
+    if extraction_mode == "vision" and num_pages > 15:
+        warnings.append(
+            f"⚠️ This PDF has {num_pages} pages — only the first 15 were analysed (Vision mode limit). "
+            f"Use CSV/Excel import if you need full catalogue coverage."
+        )
+    elif extraction_mode == "text" and len(raw_text) > 60_000:
+        warnings.append(
+            f"⚠️ This PDF is very long ({num_pages} pages). Text was truncated after ~60 000 characters — "
+            f"some products near the end may be missing. Prefer CSV/Excel import for complete results."
+        )
 
     if not extracted:
         warnings.append("⚠️ No products could be extracted from this PDF. Try importing a CSV instead.")
@@ -455,8 +539,8 @@ CATALOGS_DIR = "/tmp/spine_catalogs"
 @router.post("/import/pdf/to-catalog", response_model=PDFToCatalogResult)
 async def import_pdf_to_catalog(
     file: UploadFile = File(...),
-    catalog_name: str = "Mon catalogue",
-    company_id: int = None,
+    catalog_name: str = Form("Mon catalogue"),
+    company_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
@@ -470,7 +554,7 @@ async def import_pdf_to_catalog(
 
     company_id est optionnel - permet un catalogue sans distributeur.
     """
-    if not file.filename.endswith('.pdf'):
+    if not (file.filename or "").lower().endswith('.pdf'):
         raise HTTPException(400, "File must be a PDF")
     
     contents = await file.read()
@@ -484,19 +568,38 @@ async def import_pdf_to_catalog(
         raise HTTPException(500, f"Extraction error: {str(e)}")
     
     # Étape 2 : créer ou récupérer le catalogue
-    existing_catalog = db.query(DistributorCatalog).filter(
-        DistributorCatalog.user_id == user.id,
-        DistributorCatalog.name == catalog_name
-    ).first()
+    normalized_company_id = company_id if company_id and company_id > 0 else None
 
+    # Si un distributeur est fourni, vérifier qu'il appartient bien à l'utilisateur
+    if normalized_company_id is not None:
+        from app.models.company import Company
+        company = db.query(Company).filter(
+            Company.id == normalized_company_id,
+            Company.user_id == user.id,
+        ).first()
+        if not company:
+            raise HTTPException(404, "Company not found")
+
+    q = db.query(DistributorCatalog).filter(
+        DistributorCatalog.user_id == user.id,
+        DistributorCatalog.name == catalog_name.strip(),
+    )
+
+    if normalized_company_id is None:
+        q = q.filter(DistributorCatalog.company_id.is_(None))
+    else:
+        q = q.filter(DistributorCatalog.company_id == normalized_company_id)
+
+    existing_catalog = q.first()
+    
     if existing_catalog:
         catalog = existing_catalog
 
     else:
         catalog = DistributorCatalog(
             user_id=user.id,
-            name=catalog_name,
-            company_id=company_id if company_id and company_id > 0 else None,            
+            name=catalog_name.strip(),
+            company_id=normalized_company_id,            
         )
         db.add(catalog)
         db.flush()

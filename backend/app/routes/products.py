@@ -54,6 +54,17 @@ def get_catalog_memberships(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    Retourne pour chaque product_id la liste des catalogues qui le contiennent.
+    Inclut toujours le "Catalo
+    """
+
+
+@router.get("/catalog-memberships")
+def get_catalog_memberships(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Retourne pour chaque product_id la liste des catalogues qui le contiennent."""
     from app.models.distributor_catalog import DistributorCatalog as DCModel, DistributorCatalogItem as DCItem
     rows = (

@@ -50,6 +50,7 @@ class DistributorCatalogCreate(DistributorCatalogBase):
 class DistributorCatalogUpdate(BaseModel):
     name: Optional[str] = None
     notes: Optional[str] = None
+    company_id: Optional[int] = None
 
 class DistributorCatalogOut(DistributorCatalogBase):
     id: int

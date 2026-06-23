@@ -14,12 +14,14 @@ import EmailPreviewModal from "./EmailPreviewModal";
 import {
   getDistributors,
   getCompanyContacts,
+  createCompany,
   type CompanyContact,
 } from "../api/companies";
 import WizardCatalogueStep from "./WizardCatalogueStep";
 import WizardLeadsStep from "./WizardLeadsStep";
 import { aiConfirmImport, type EnrichedRow } from "../api/prospectImport";
 import type { Company } from "../types";
+import WizardTemplatesStep from "./WizardTemplatesStep";
 
 type WizardProps = {
   onClose: () => void;
@@ -29,9 +31,10 @@ const STEPS = [
   "Salon context",
   "Distributor",
   "Catalogue",
-  "Your message",
-  "Import leads",
   "Attachments",
+  "Import leads",
+  "Company & Segments",
+  "Templates",
   "Review & Create",
   "Preview emails",
 ];
@@ -92,6 +95,16 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
 
+  // Quick-add distributor inline form state
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAddForm, setQuickAddForm] = useState({
+    name: "",
+    market: "",
+    website: "",
+  });
+  const [quickAddLoading, setQuickAddLoading] = useState(false);
+  const [quickAddError, setQuickAddError] = useState("");
+
   // Charger les distributeurs au montage du wizard
   useEffect(() => {
     getDistributors()
@@ -133,6 +146,30 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
       );
     } else {
       set("cc_contact_ids", [...current, contactId]);
+    }
+  };
+
+  // Create a new distributor company inline and auto-select it
+  const handleQuickAddDistributor = async () => {
+    if (!quickAddForm.name.trim()) return;
+    setQuickAddLoading(true);
+    setQuickAddError("");
+    try {
+      const created = await createCompany({
+        name: quickAddForm.name.trim(),
+        market: quickAddForm.market || undefined,
+        website: quickAddForm.website || undefined,
+        chain_level: "distributor",
+      });
+      // Add to local list + auto-select
+      setDistributors((prev) => [...prev, created]);
+      setShowQuickAdd(false);
+      setQuickAddForm({ name: "", market: "", website: "" });
+      await handleDistributorSelect(created.id);
+    } catch {
+      setQuickAddError("Failed to create distributor. Please try again.");
+    } finally {
+      setQuickAddLoading(false);
     }
   };
 
@@ -218,7 +255,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
         }
       }
 
-      setStep(7);
+      setStep(8);
     } catch {
       setError("Failed to create campaign. Please check required fields.");
     } finally {
@@ -387,7 +424,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             </>
           )}
 
-          {/* PAGE 2 — Distributeur */}
+          {/* STEP 2 — Distributor */}
           {step === 1 && (
             <>
               <p className="text-sm text-gray-500">
@@ -424,36 +461,144 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
                         from your Companies (chain level = Distributor)
                       </span>
                     </label>
-                    {distributors.length === 0 ? (
-                      <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-yellow-700">
-                        ⚠️ No distributor found in your Companies.{" "}
-                        <a
-                          href="/companies"
-                          target="_blank"
-                          className="underline font-medium"
+                    <select
+                      value={form.distributor_company_id ?? ""}
+                      onChange={(e) =>
+                        handleDistributorSelect(
+                          e.target.value ? Number(e.target.value) : null,
+                        )
+                      }
+                      disabled={distributors.length === 0}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                    >
+                      <option value="">
+                        {distributors.length === 0
+                          ? "No distributors yet — add one below"
+                          : "— Select a distributor —"}
+                      </option>
+                      {distributors.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                          {d.market ? ` · ${d.market}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {/* Quick-add inline — no need to leave the wizard */}
+                    <div className="mt-2">
+                      {!showQuickAdd ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowQuickAdd(true)}
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
                         >
-                          Add one →
-                        </a>
-                      </div>
-                    ) : (
-                      <select
-                        value={form.distributor_company_id ?? ""}
-                        onChange={(e) =>
-                          handleDistributorSelect(
-                            e.target.value ? Number(e.target.value) : null,
-                          )
-                        }
-                        className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">— Select a distributor —</option>
-                        {distributors.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name}
-                            {d.market ? ` · ${d.market}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                          + Add a new distributor
+                        </button>
+                      ) : (
+                        <div className="mt-1 p-4 border border-blue-200 bg-blue-50 rounded-xl space-y-3">
+                          <div className="flex justify-between items-center">
+                            <p className="text-xs font-semibold text-blue-700">
+                              New distributor
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowQuickAdd(false);
+                                setQuickAddError("");
+                              }}
+                              className="text-gray-400 hover:text-gray-600 text-sm leading-none"
+                            >
+                              ✕
+                            </button>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Name *
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="ex: Sysco Canada"
+                              value={quickAddForm.name}
+                              onChange={(e) =>
+                                setQuickAddForm((f) => ({
+                                  ...f,
+                                  name: e.target.value,
+                                }))
+                              }
+                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Market
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="ex: Quebec"
+                                value={quickAddForm.market}
+                                onChange={(e) =>
+                                  setQuickAddForm((f) => ({
+                                    ...f,
+                                    market: e.target.value,
+                                  }))
+                                }
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Website
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="ex: sysco.ca"
+                                value={quickAddForm.website}
+                                onChange={(e) =>
+                                  setQuickAddForm((f) => ({
+                                    ...f,
+                                    website: e.target.value,
+                                  }))
+                                }
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                              />
+                            </div>
+                          </div>
+
+                          {quickAddError && (
+                            <p className="text-xs text-red-500">
+                              {quickAddError}
+                            </p>
+                          )}
+
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowQuickAdd(false);
+                                setQuickAddError("");
+                              }}
+                              className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-500 hover:bg-white"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={
+                                !quickAddForm.name.trim() || quickAddLoading
+                              }
+                              onClick={handleQuickAddDistributor}
+                              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              {quickAddLoading
+                                ? "Creating..."
+                                : "Create & select"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* CC suggérés depuis les contacts de la company */}
@@ -552,7 +697,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             </>
           )}
 
-          {/* PAGE 3 — Catalogue */}
+          {/* STEP 3 — Catalogue */}
           {step === 2 && (
             <WizardCatalogueStep
               distributorCompanyId={form.distributor_company_id}
@@ -568,101 +713,8 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             />
           )}
 
-          {/* STEP 4 — Your message */}
+          {/* STEP 4 — Attachments */}
           {step === 3 && (
-            <>
-              <p className="text-sm text-gray-500">
-                Personalize the email body. All fields are optional — leave
-                empty for smart defaults.
-              </p>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Company intro
-                  <span className="ml-2 text-xs font-normal text-gray-400">
-                    Who are you? What do you do?
-                  </span>
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="ex: We are a specialty food importer focused on premium European products, working with distributors and foodservice operators across North America."
-                  value={form.company_intro_text}
-                  onChange={(e) => set("company_intro_text", e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="border-t pt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Global note
-                  <span className="ml-2 text-xs font-normal text-gray-400">
-                    Added to all emails regardless of client type
-                  </span>
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="ex: We are currently expanding our distribution network..."
-                  value={form.segment_note_global}
-                  onChange={(e) => set("segment_note_global", e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
-                />
-              </div>
-
-              <div className="border-t pt-4 space-y-3">
-                <p className="text-sm font-medium text-gray-700">
-                  Segment-specific notes
-                  <span className="ml-2 text-xs font-normal text-gray-400">
-                    Only added if client type matches
-                  </span>
-                </p>
-
-                {[
-                  {
-                    key: "segment_note_restaurant",
-                    label: "🍽 Foodservice / Restaurant",
-                    placeholder:
-                      "ex: Our formats are designed for high-volume kitchens...",
-                  },
-                  {
-                    key: "segment_note_industry",
-                    label: "🏭 Industry",
-                    placeholder:
-                      "ex: We offer private label and bulk formats...",
-                  },
-                  {
-                    key: "segment_note_retail",
-                    label: "🛒 Retail",
-                    placeholder:
-                      "ex: Strong margin potential and proven shelf performance...",
-                  },
-                ].map(({ key, label, placeholder }) => (
-                  <div key={key}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      {label}
-                    </label>
-                    <textarea
-                      rows={2}
-                      placeholder={placeholder}
-                      value={form[key as keyof typeof form] as string}
-                      onChange={(e) => set(key, e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
-                    />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* STEP 5 — Import leads */}
-          {step === 4 && (
-            <WizardLeadsStep
-              onRowsReady={(rows) => setStagedRows(rows)}
-              readyRowCount={stagedRows.length}
-            />
-          )}
-
-          {/* PAGE 3 - Attachment library */}
-          {step === 5 && (
             <>
               <p className="text-sm text-gray-500">
                 Upload files to attach to your emails. You can link each file to
@@ -679,7 +731,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
                 >
                   <p className="text-3xl mb-2">📎</p>
                   <p className="text-sm text-gray-600 font-medium">
-                    Click to ass a file
+                    Click to add a file
                   </p>
                   <p className="text-xs text-gray-400 mt-1">
                     PDF only - max 2 files, 5 MB each
@@ -819,8 +871,115 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             </>
           )}
 
-          {/* STEP 7 — Review */}
+          {/* STEP 5 — Import leads */}
+          {step === 4 && (
+            <WizardLeadsStep
+              onRowsReady={(rows) => setStagedRows(rows)}
+              readyRowCount={stagedRows.length}
+            />
+          )}
+
+          {/* STEP 6 — Company & Segments */}
+          {step === 5 && (
+            <>
+              <p className="text-sm text-gray-500">
+                Personalize the email body with company intro and segment-specific notes.
+              </p>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Company intro
+                  <span className="ml-2 text-xs font-normal text-gray-400">
+                    Who are you? What do you do?
+                  </span>
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="ex: We are a specialty food importer focused on premium European products, working with distributors and foodservice operators across North America."
+                  value={form.company_intro_text}
+                  onChange={(e) => set("company_intro_text", e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="border-t pt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Global note
+                  <span className="ml-2 text-xs font-normal text-gray-400">
+                    Added to all emails regardless of client type
+                  </span>
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="ex: We are currently expanding our distribution network..."
+                  value={form.segment_note_global}
+                  onChange={(e) => set("segment_note_global", e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
+                />
+              </div>
+
+              <div className="border-t pt-4 space-y-3">
+                <p className="text-sm font-medium text-gray-700">
+                  Segment-specific notes
+                  <span className="ml-2 text-xs font-normal text-gray-400">
+                    Only added if client type matches
+                  </span>
+                </p>
+
+                {[
+                  {
+                    key: "segment_note_restaurant",
+                    label: "🍽 Foodservice / Restaurant",
+                    placeholder:
+                      "ex: Our formats are designed for high-volume kitchens...",
+                  },
+                  {
+                    key: "segment_note_industry",
+                    label: "🏭 Industry",
+                    placeholder:
+                      "ex: We offer private label and bulk formats...",
+                  },
+                  {
+                    key: "segment_note_retail",
+                    label: "🛒 Retail",
+                    placeholder:
+                      "ex: Strong margin potential and proven shelf performance...",
+                  },
+                ].map(({ key, label, placeholder }) => (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      {label}
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder={placeholder}
+                      value={form[key as keyof typeof form] as string}
+                      onChange={(e) => set(key, e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* STEP 7 — Templates */}
           {step === 6 && (
+            <WizardTemplatesStep
+              ccContacts={companyContacts}
+              attachments={attachments}
+              stagedRows={stagedRows}
+              campaignName={form.name}
+              followupDelays={[
+                form.followup_delay_1,
+                form.followup_delay_2,
+                form.followup_delay_3,
+              ]}
+            />
+          )}
+
+          {/* STEP 8 — Review & Create */}
+          {step === 7 && (
             <>
               <p className="text-sm text-gray-500">
                 Review your campaign before creating it.
@@ -883,8 +1042,8 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             </>
           )}
 
-          {/* STEP 8 — Preview emails */}
-          {step === 7 && (
+          {/* STEP 9 — Preview Emails */}
+          {step === 8 && (
             <>
               <p className="text-sm text-gray-500">
                 Preview the emails that will be sent to your contacts.
@@ -934,7 +1093,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             {step === 0 ? "Cancel" : "← Back"}
           </button>
 
-          {step === 6 ? (
+          {step === 7 ? (
             <button
               onClick={handleCreate}
               disabled={loading}
@@ -942,7 +1101,7 @@ export default function CreateCampaignWizard({ onClose }: WizardProps) {
             >
               {loading ? "Creating..." : "✅ Create campaign"}
             </button>
-          ) : step === 7 ? (
+          ) : step === 8 ? (
             <button
               onClick={() =>
                 createdCampaignId && navigate(`/campaigns/${createdCampaignId}`)

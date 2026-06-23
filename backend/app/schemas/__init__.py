@@ -74,6 +74,13 @@ class ProductImportPreview(BaseModel):
     columns_detected: List[str]
     warnings: List[str]
 
+class PDFCreditCheck(BaseModel):
+    """Fast pre-check before calling Haiku Vision - no AI call, just page analysis."""
+    num_pages: int
+    estimated_mode: str
+    requires_confirmation: bool
+    warning_message: str
+
 class PDFImportPreview(BaseModel):
     """Preview of PDF catalog extraction by Haiku before importing."""
     products: List[dict]
