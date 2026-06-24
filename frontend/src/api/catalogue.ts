@@ -293,3 +293,15 @@ export const getDistributorCatalogDeleteImpact = async (
   const res = await api.get(`/api/distributor-catalogs/${id}/delete-impact`);
   return res.data;
 };
+
+// Amélioration des notes avec IA
+export async function improveDistributorCatalogNotes(
+  catalogId: number,
+  notes: string,
+): Promise<{ improved_notes: string }> {
+  const res = await api.post(
+    `/api/distributor-catalogs/${catalogId}/improve-notes`,
+    { notes },
+  );
+  return res.data;
+}

@@ -614,6 +614,11 @@ async def import_pdf_to_catalog(
         db.add(catalog)
         db.flush()
 
+    # Persister le pitch auto-généré sur le catalogue (fallback sans migration)
+    if generated_catalog_pitch and generated_catalog_pitch.strip():
+        if not (catalog.notes and catalog.notes.strip()):
+            catalog.notes = generated_catalog_pitch.strip()
+
     # Étape 3 : importer les produits et les associer au catalogue
     created = 0
     skipped = 0

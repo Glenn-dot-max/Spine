@@ -410,17 +410,19 @@ def generate_catalog_pitch_with_ai(
 You are a B2B food distribution copywriter.
 Write ONE short "catalog pitch" paragraph for a sales email campaign.
 
+Goal: Present the BRAND globally + the product RANGE  at high level - without listing individual items.
+
 Constraints:
 - Max 2 sentences
 - 220 - 230 characters ideally
 - Concerete, product-focused, not generic, commercial tone
 - No markdown, no bullets, no quotes
-- Mention breadth/range and buyer value
+- Focus on brand heritage/reputation + range breadth (not individual SKUs)
 - Language: use English
 
 Catalog name: {catalog_name}
 
-Products sample:
+Products sample (use only to infer brand positioning and category breadth):
 {chr(10).join(product_lines)}
 """.strip()
     
@@ -435,3 +437,41 @@ Products sample:
         return text[:360]
     except Exception:
         return ""
+    
+async def improve_text_with_ai(text: str) -> str:
+    """
+    Improve catalog text with Claude Haiku and always return English output.
+    """
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        message = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=500,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""You are a professional B2B copy editor for food distribution catalog descriptions.
+
+Rewrite and improve the text with:
+- Correct grammar and spelling
+- Better clarity and concision
+- Professional commercial tone
+- Natural sentence flow
+
+Critical rule: ALWAYS return the final result in English, even if the original text is in French or another language.
+Keep product names and brand names unchanged when possible.
+Return ONLY the improved English text. No explanations, no bullets, no quotes.
+
+Original text:
+{text}"""
+                }
+            ]
+        )
+
+        improved = message.content[0].text.strip()
+        return improved
+    
+    except Exception:
+        return text

@@ -27,8 +27,10 @@ import {
   uploadCatalogPdf,
   getCatalogPdfBlobUrl,
   getProductCatalogMemberships,
+  improveDistributorCatalogNotes,
   type CatalogMembership,
   type CatalogMemberships,
+  updateDistributorCatalog,
 } from "../api/catalogue";
 
 import { getCompanies } from "../api/companies";
@@ -106,6 +108,9 @@ export default function Catalogue() {
   const [addingProductId, setAddingProductId] = useState<number | "">("");
   const [catalogPdfUrl, setCatalogPdfUrl] = useState<string | null>(null);
   const [pdfUploading, setPdfUploading] = useState(false);
+  const [editingNotes, setEditingNotes] = useState<string>("");
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [improvingNotes, setImprovingNotes] = useState(false);
 
   // Chargement initial
   useEffect(() => {
@@ -363,6 +368,51 @@ export default function Catalogue() {
     }
   };
 
+  // Améliorer les notes avec IA
+  const handleImproveNotes = async () => {
+    if (!selectedCatalog || !editingNotes.trim()) return;
+
+    setImprovingNotes(true);
+    try {
+      const result = await improveDistributorCatalogNotes(
+        selectedCatalog.id,
+        editingNotes,
+      );
+      setEditingNotes(result.improved_notes);
+    } catch (error) {
+      console.error("Error improving notes:", error);
+      alert("Erreur lors de l'amélioration. Rééssayez plus tard.");
+    } finally {
+      setImprovingNotes(false);
+    }
+  };
+
+  // Sauvegarder les notes modifiées
+  const handleSaveNotes = async () => {
+    if (!selectedCatalog) return;
+
+    try {
+      // Appelle l'update du catalogue avec les nouvelles notes
+      const updated = await updateDistributorCatalog(selectedCatalog.id, {
+        notes: editingNotes,
+      });
+      setSelectedCatalog(updated);
+      setIsEditingNotes(false);
+      // Refresh list
+      loadCatalogs();
+    } catch (error) {
+      console.error("Error saving notes:", error);
+      alert("Erreur lors de la sauvegarde. Rééssayez plus tard.");
+    }
+  };
+
+  // Quand selectedCatalog change, initialise les notes
+  useEffect(() => {
+    if (selectedCatalog) {
+      setEditingNotes(selectedCatalog.notes || "");
+    }
+  }, [selectedCatalog]);
+
   const companyName = (id?: number) =>
     id ? (companies.find((c) => c.id === id)?.name ?? `Company #${id}`) : "—";
 
@@ -375,24 +425,24 @@ export default function Catalogue() {
     (p) => !productsInCatalog.has(p.id),
   );
 
-  const normalizeSearchText = (value: string) =>
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim();
-
-  const matchesKeywords = (query: string, text: string) => {
-    const normalizedQuery = normalizeSearchText(query);
-    if (!normalizedQuery) return true;
-
-    const keywords = normalizedQuery.split(/\s+/).filter(Boolean);
-    const normalizedText = normalizeSearchText(text);
-
-    return keywords.every((keyword) => normalizedText.includes(keyword));
-  };
-
   const filteredProducts = useMemo(() => {
+    const normalizeSearchText = (value: string) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+
+    const matchesKeywords = (query: string, text: string) => {
+      const normalizedQuery = normalizeSearchText(query);
+      if (!normalizedQuery) return true;
+
+      const keywords = normalizedQuery.split(/\s+/).filter(Boolean);
+      const normalizedText = normalizeSearchText(text);
+
+      return keywords.every((keyword) => normalizedText.includes(keyword));
+    };
+
     return products.filter((p) => {
       const memberships = catalogMemberships[p.id] ?? [];
 
@@ -854,7 +904,7 @@ export default function Catalogue() {
 
                 <div className="border rounded-lg overflow-hidden">
                   <div className="px-3 py-2 bg-gray-50 border-b text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Aperçu des produits extraits
+                    Aperçu des produits extraits - Édite ou supprime les lignes
                   </div>
                   <div className="overflow-x-auto max-h-72 overflow-y-auto">
                     <table className="min-w-full text-sm">
@@ -875,6 +925,9 @@ export default function Catalogue() {
                           <th className="text-left px-3 py-2 text-gray-500 font-medium">
                             Confiance
                           </th>
+                          <th className="text-center px-3 py-2 text-gray-500 font-medium">
+                            Action
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -884,19 +937,67 @@ export default function Catalogue() {
                               key={i}
                               className="border-b last:border-0 hover:bg-gray-50"
                             >
-                              <td className="px-3 py-2 font-mono text-gray-500">
-                                {p.item_number}
-                              </td>
-                              <td className="px-3 py-2 font-medium text-gray-800">
-                                {p.name}
-                              </td>
-                              <td className="px-3 py-2 text-gray-500">
-                                {p.brand ?? "-"}
-                              </td>
-                              <td className="px-3 py-2 text-gray-500">
-                                {p.category ?? "-"}
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={p.item_number}
+                                  onChange={(e) => {
+                                    const updated = [...pdfPreview.products];
+                                    updated[i].item_number = e.target.value;
+                                    setPdfPreview({
+                                      ...pdfPreview,
+                                      products: updated,
+                                    });
+                                  }}
+                                  className="w-full border border-gray-200 rounded px-2 py-1 font-mono"
+                                />
                               </td>
                               <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={p.name}
+                                  onChange={(e) => {
+                                    const updated = [...pdfPreview.products];
+                                    updated[i].name = e.target.value;
+                                    setPdfPreview({
+                                      ...pdfPreview,
+                                      products: updated,
+                                    });
+                                  }}
+                                  className="w-full border border-gray-200 rounded px-2 py-1 font-medium"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={p.brand ?? ""}
+                                  onChange={(e) => {
+                                    const updated = [...pdfPreview.products];
+                                    updated[i].brand = e.target.value;
+                                    setPdfPreview({
+                                      ...pdfPreview,
+                                      products: updated,
+                                    });
+                                  }}
+                                  className="w-full border border-gray-200 rounded px-2 py-1"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={p.category ?? ""}
+                                  onChange={(e) => {
+                                    const updated = [...pdfPreview.products];
+                                    updated[i].category = e.target.value;
+                                    setPdfPreview({
+                                      ...pdfPreview,
+                                      products: updated,
+                                    });
+                                  }}
+                                  className="w-full border border-gray-200 rounded px-2 py-1"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-center">
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-xs font-medium ${
                                     p.confidence >= 0.8
@@ -908,6 +1009,23 @@ export default function Catalogue() {
                                 >
                                   {Math.round(p.confidence * 100)}%
                                 </span>
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  onClick={() => {
+                                    const updated = pdfPreview.products.filter(
+                                      (_, idx) => idx !== i,
+                                    );
+                                    setPdfPreview({
+                                      ...pdfPreview,
+                                      products: updated,
+                                      total_extracted: updated.length,
+                                    });
+                                  }}
+                                  className="text-red-500 hover:text-red-700"
+                                >
+                                  x Supprimer
+                                </button>
                               </td>
                             </tr>
                           ),
@@ -1168,48 +1286,89 @@ export default function Catalogue() {
               ) : (
                 <div>
                   {/* Header catalogue */}
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
+                  <div className="mb-4">
+                    <div className="flex justify-between items-start gap-4">
                       <h2 className="text-lg font-semibold text-gray-900">
                         {selectedCatalog.name}
                       </h2>
-                      <p className="text-sm text-gray-500">
-                        {companyName(selectedCatalog.company_id)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {catalogPdfUrl && (
-                        <a
-                          href={catalogPdfUrl}
-                          download={
-                            selectedCatalog.pdf_filename ?? "catalogue.pdf"
-                          }
-                          className="text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-1"
+                      <div className="flex items-center gap-2 shrink-0">
+                        {catalogPdfUrl && (
+                          <a
+                            href={catalogPdfUrl}
+                            download={
+                              selectedCatalog.pdf_filename ?? "catalogue.pdf"
+                            }
+                            className="text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-1"
+                          >
+                            ↓ {selectedCatalog.pdf_filename ?? "catalogue.pdf"}
+                          </a>
+                        )}
+                        <label
+                          className={`text-xs px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 ${pdfUploading ? "opacity-50 cursor-not-allowed" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}
                         >
-                          ↓ {selectedCatalog.pdf_filename ?? "catalogue.pdf"}
-                        </a>
-                      )}
-                      <label
-                        className={`text-xs px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 ${pdfUploading ? "opacity-50 cursor-not-allowed" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}
-                      >
-                        📎{" "}
-                        {pdfUploading
-                          ? "Upload..."
-                          : selectedCatalog.has_pdf
-                            ? "Remplacer le PDF"
-                            : "Joindre un PDF"}
-                        <input
-                          type="file"
-                          accept=".pdf"
-                          className="hidden"
-                          disabled={pdfUploading}
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleUploadCatalogPdf(f);
-                          }}
-                        />
-                      </label>
+                          📎{" "}
+                          {pdfUploading
+                            ? "Upload..."
+                            : selectedCatalog.has_pdf
+                              ? "Remplacer le PDF"
+                              : "Joindre un PDF"}
+                          <input
+                            type="file"
+                            accept=".pdf"
+                            className="hidden"
+                            disabled={pdfUploading}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleUploadCatalogPdf(f);
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
+
+                    {isEditingNotes ? (
+                      <div className="mt-2 w-full flex flex-col gap-2">
+                        <textarea
+                          value={editingNotes}
+                          onChange={(e) => setEditingNotes(e.target.value)}
+                          className="w-full text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          rows={4}
+                          placeholder="Ajoute une description du catalogue..."
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleImproveNotes}
+                            disabled={improvingNotes}
+                            className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1"
+                          >
+                            {improvingNotes
+                              ? "⏳ Amélioration..."
+                              : "✨ Improve"}
+                          </button>
+                          <button
+                            onClick={handleSaveNotes}
+                            className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 flex items-center gap-1"
+                          >
+                            💾 Sauvegarder
+                          </button>
+                          <button
+                            onClick={() => setIsEditingNotes(false)}
+                            className="text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className="mt-2 w-full text-sm text-gray-500 leading-relaxed cursor-pointer hover:text-gray-700 hover:bg-gray-50 p-2 rounded"
+                        onClick={() => setIsEditingNotes(true)}
+                      >
+                        {editingNotes?.trim() ||
+                          companyName(selectedCatalog.company_id) ||
+                          "—"}
+                      </div>
+                    )}
                   </div>
 
                   {/* Layout 2 colonnes : produits + PDF  */}
@@ -1284,6 +1443,17 @@ export default function Catalogue() {
                                     {item.product_category ?? "—"}
                                   </td>
                                   <td className="py-2 text-right">
+                                    <button
+                                      onClick={() => {
+                                        const product = products.find(
+                                          (p) => p.id === item.product_id,
+                                        );
+                                        if (product) handleEditProduct(product);
+                                      }}
+                                      className="text-xs text-blue-500 hover:text-blue-700 mr-2"
+                                    >
+                                      ✏️ Modifier
+                                    </button>
                                     <button
                                       onClick={() =>
                                         handleRemoveProduct(item.id)

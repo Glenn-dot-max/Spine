@@ -569,3 +569,33 @@ def download_catalog_pdf(
         media_type="application/pdf",
         filename=catalog.pdf_filename or "catalog.pdf",
     )
+
+@router.post("/{catalog_id}/improve-notes")
+async def improve_catalog_notes(
+    catalog_id: int,
+    request: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Améliore les notes du catalogue avec l'IA (grammaire, clarté, professionnalisme)
+    """
+    from app.services.pdf_ai_extractor import improve_text_with_ai
+
+    catalog = db.query(DistributorCatalog).filter(
+        DistributorCatalog.id == catalog_id,
+        DistributorCatalog.user_id == current_user.id,
+    ).first()
+
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+    
+    original_text = request.get("notes", "").strip()
+    if not original_text:
+        raise HTTPException(status_code=400, detail="No notes provided for improvement")
+    
+    try:
+        improved_text = await improve_text_with_ai(original_text)
+        return {"improved_notes": improved_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur IA: {str(e)}")

@@ -214,6 +214,9 @@ export default function WizardCatalogueStep({
     setLoadingPickedCatalog(true);
     try {
       const data = await getDistributorCatalog(id);
+      if (!catalogPitchText.trim() && data.notes && data.notes?.trim()) {
+        onPitchChange(data.notes.trim());
+      }
       const products: CatalogProduct[] = (data.items ?? []).map(
         (item: import("../types").DistributorCatalogItem) => ({
           id: item.product_id,
