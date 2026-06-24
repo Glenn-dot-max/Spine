@@ -263,7 +263,12 @@ export const updateDistributorCatalog = async (
 
 // --- Memberships catalogue ---
 
-export type CatalogMembership = { catalog_id: number; catalog_name: string };
+export type CatalogMembership = {
+  catalog_id: number;
+  catalog_name: string;
+  catalog_type: "general" | "distributor";
+  company_id: number | null;
+};
 export type CatalogMemberships = Record<number, CatalogMembership[]>;
 
 export const getProductCatalogMemberships =

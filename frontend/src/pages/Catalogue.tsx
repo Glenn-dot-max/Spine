@@ -5,7 +5,7 @@
  * Dépendances API: /api/products, /api/distributors-catalogs, api/companies
  * À faire : export produits, pagination
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   getProducts,
   importProductsCSV,
@@ -67,6 +67,12 @@ export default function Catalogue() {
     formats: "",
     price_range: "",
     short_description: "",
+  });
+  const [filters, setFilters] = useState({
+    name: "",
+    brand: "",
+    category: "",
+    catalog: "",
   });
 
   // -- Imports --
@@ -369,9 +375,43 @@ export default function Catalogue() {
     (p) => !productsInCatalog.has(p.id),
   );
 
+  const normalizeSearchText = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+
+  const matchesKeywords = (query: string, text: string) => {
+    const normalizedQuery = normalizeSearchText(query);
+    if (!normalizedQuery) return true;
+
+    const keywords = normalizedQuery.split(/\s+/).filter(Boolean);
+    const normalizedText = normalizeSearchText(text);
+
+    return keywords.every((keyword) => normalizedText.includes(keyword));
+  };
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const memberships = catalogMemberships[p.id] ?? [];
+
+      const catalogText = memberships
+        .map((m) => m.catalog_name ?? "")
+        .join(" ");
+
+      const nameOk = matchesKeywords(filters.name, p.name ?? "");
+      const brandOk = matchesKeywords(filters.brand, p.brand ?? "");
+      const categoryOk = matchesKeywords(filters.category, p.category ?? "");
+      const catalogOk = matchesKeywords(filters.catalog, catalogText);
+
+      return nameOk && brandOk && categoryOk && catalogOk;
+    });
+  }, [products, catalogMemberships, filters]);
+
   return (
     <>
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full max-w-[96vw] 2xl:max-w-[1800px] mx-auto px-2 md:px-4">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">
           Catalogue produits
         </h1>
@@ -407,6 +447,56 @@ export default function Catalogue() {
               >
                 + Ajouter un produit
               </button>
+            </div>
+            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+              <input
+                value={filters.name}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, name: e.target.value }))
+                }
+                placeholder="Filtred by name..."
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                value={filters.brand}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, brand: e.target.value }))
+                }
+                placeholder="Filtred by brand..."
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                value={filters.category}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, category: e.target.value }))
+                }
+                placeholder="Filtred by category..."
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <div className="flex gap-2">
+                <input
+                  value={filters.catalog}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, catalog: e.target.value }))
+                  }
+                  placeholder="Filtred by catalog..."
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFilters({
+                      name: "",
+                      brand: "",
+                      category: "",
+                      catalog: "",
+                    })
+                  }
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
 
             {showProductForm && (
@@ -535,7 +625,7 @@ export default function Catalogue() {
             )}
             {loadingProducts ? (
               <p className="text-gray-500">Chargement...</p>
-            ) : products.length === 0 ? (
+            ) : filteredProducts.length === 0 ? (
               <div className="text-center py-12 text-gray-400">
                 <p className="text-lg">Aucun produit dans le catalogue</p>
                 <button
@@ -561,7 +651,7 @@ export default function Catalogue() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.map((p) => (
+                    {filteredProducts.map((p) => (
                       <tr
                         key={p.id}
                         className="border-b border-gray-100 hover:bg-gray-50"
@@ -600,8 +690,12 @@ export default function Catalogue() {
                               (catalogMemberships[p.id] ?? []).map(
                                 (m: CatalogMembership) => (
                                   <span
-                                    key={m.catalog_id}
-                                    className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-600 border border-blue-100"
+                                    key={`${p.id}-${m.catalog_type}-${m.catalog_id}`}
+                                    className={`px-1.5 py-0.5 rounded text-xs font-medium border ${
+                                      m.catalog_type === "general"
+                                        ? "bg-gray-100 text-gray-700 border-gray-200"
+                                        : "bg-blue-50 text-blue-600 border-blue-100"
+                                    }`}
                                   >
                                     {m.catalog_name}
                                   </span>
@@ -974,7 +1068,7 @@ export default function Catalogue() {
 
         {/* ===== ONGLET CATALOGUES DISTRIBUTEURS ===== */}
         {activeTab === "distributors" && (
-          <div className="flex gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-6">
             {/* Liste des catalogues */}
             <div className="w-72 flex-shrink-0">
               <div className="flex justify-between items-center mb-3">
@@ -1120,7 +1214,11 @@ export default function Catalogue() {
 
                   {/* Layout 2 colonnes : produits + PDF  */}
                   <div
-                    className={`flex gap-4 ${catalogPdfUrl ? "items-start" : ""}`}
+                    className={`grid gap-5 ${
+                      catalogPdfUrl
+                        ? "grid-cols-1 2xl:grid-cols-[minmax(760px,1fr)_minmax(620px,46vw)] items-start"
+                        : "grid-cols-1"
+                    }`}
                   >
                     <div className="flex-1 min-w-0">
                       {/* Ajouter un produit */}
@@ -1205,7 +1303,7 @@ export default function Catalogue() {
 
                     {/* Preview PDF inline */}
                     {catalogPdfUrl && (
-                      <div className="w-[480px] flex-shrink-0">
+                      <div className="min-w-0 2xl:sticky 2xl:top-4">
                         <div className="flex justify-between items-center mb-1">
                           <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
                             Aperçu du catalogue
@@ -1221,10 +1319,10 @@ export default function Catalogue() {
                         </div>
                         <iframe
                           src={`${catalogPdfUrl}#toolbar=1&navpanes=1&scrollbar=1&view=FitH`}
-                          className="w-full rounded-lg border border-gray-200"
+                          className="w-full rounded-lg border border-gray-200 bg-white"
                           style={{
-                            height: "calc(100vh - 280px)",
-                            minHeight: "500px",
+                            height: "min(78vh, 1100px)",
+                            minHeight: "640px",
                           }}
                           title="Catalogue PDF"
                         ></iframe>

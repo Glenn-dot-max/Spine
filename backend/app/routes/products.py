@@ -56,28 +56,50 @@ def get_catalog_memberships(
 ):
     """
     Retourne pour chaque product_id la liste des catalogues qui le contiennent.
-    Inclut toujours le "Catalo
+    Inclut toujours le "Catalogue général" (virtuel) pour tous les produits.
     """
+    from app.models.distributor_catalog import (
+        DistributorCatalog as DCModel,
+        DistributorCatalogItem as DCItem,
+    )
 
+    # 1. Tous les produits du user -> appartiennent au catalogue général
+    product_rows = db.query(ProductModel.id).filter(
+        ProductModel.user_id == current_user.id
+    ).all()
 
-@router.get("/catalog-memberships")
-def get_catalog_memberships(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Retourne pour chaque product_id la liste des catalogues qui le contiennent."""
-    from app.models.distributor_catalog import DistributorCatalog as DCModel, DistributorCatalogItem as DCItem
+    result: dict[int, list[dict]] = {
+        product_id: [
+            {
+                "catalog_id": 0,
+                "catalog_name": "Catalogue général",
+                "catalog_type": "general",
+                "company_id": None,
+            }
+        ]
+        for (product_id,) in product_rows
+    }
+
+    # 2. Appartenances aux catalogues distributeurs
     rows = (
-        db.query(DCItem.product_id, DCModel.id, DCModel.name)
+        db.query(DCItem.product_id, DCModel.id, DCModel.name, DCModel.company_id)
         .join(DCModel, DCItem.catalog_id == DCModel.id)
         .filter(DCModel.user_id == current_user.id)
         .all()
     )
-    result: dict = {}
-    for product_id, catalog_id, catalog_name in rows:
+
+    for product_id, catalog_id, catalog_name, company_id in rows:
         if product_id not in result:
             result[product_id] = []
-        result[product_id].append({"catalog_id": catalog_id, "catalog_name": catalog_name})
+        result[product_id].append(
+            {
+                "catalog_id": catalog_id,
+                "catalog_name": catalog_name,
+                "catalog_type": "distributor",
+                "company_id": company_id,
+            }
+        )
+    
     return result
 
 @router.get("/{product_id}", response_model=Product)
