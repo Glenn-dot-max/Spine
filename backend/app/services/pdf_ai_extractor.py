@@ -381,3 +381,57 @@ def extract_products_with_ai(file_bytes: bytes) -> List[ExtractedProduct]:
             )
         return _extract_products_from_images(images_b64)
 
+def generate_catalog_pitch_with_ai(
+    catalog_name: str,
+    products: List[ExtractedProduct],
+) -> str:
+    """
+    Génère un pitch court (2 phrases max) à partir des produits extraits.
+    Non bloquant: retourne "" si l'IA échoue.
+    """
+    if not products:
+        return ""
+    
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    sample = products[:25]
+    product_lines = []
+    for p in sample:
+        bits = [p.name]
+        if p.category:
+            bits.append(f"cat={p.category}")
+        if p.brand:
+            bits.append(f"brand={p.brand}")
+        if p.formats:
+            bits.append(f"formats={p.formats}")
+        product_lines.append(" | ".join(bits))
+
+    prompt = f"""
+You are a B2B food distribution copywriter.
+Write ONE short "catalog pitch" paragraph for a sales email campaign.
+
+Constraints:
+- Max 2 sentences
+- 220 - 230 characters ideally
+- Concerete, product-focused, not generic, commercial tone
+- No markdown, no bullets, no quotes
+- Mention breadth/range and buyer value
+- Language: use English
+
+Catalog name: {catalog_name}
+
+Products sample:
+{chr(10).join(product_lines)}
+""".strip()
+    
+    try:
+        message = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=220,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = (message.content[0].text or "").strip()
+        text = re.sub(r"\s+", " ", text).strip(" \"'")
+        return text[:360]
+    except Exception:
+        return ""

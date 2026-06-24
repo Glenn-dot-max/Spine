@@ -310,6 +310,13 @@ export default function WizardCatalogueStep({
         catalogCompanyId ? Number(catalogCompanyId) : undefined,
       );
       setPdfToCatalogResult(result);
+      if (
+        !catalogPitchText.trim() &&
+        result.generated_catalog_pitch &&
+        result.generated_catalog_pitch.trim()
+      ) {
+        onPitchChange(result.generated_catalog_pitch.trim());
+      }
       setPdfPreview(null);
       await loadCatalogProducts();
       await loadAllProducts();
@@ -375,13 +382,33 @@ export default function WizardCatalogueStep({
   };
 
   const handleDeleteCatalog = async (id: number) => {
-    if (!confirm("Supprimer ce catalogue ?")) return;
     try {
+      const impact = await getDistributorCatalogDeleteImpact(id);
+
+      const sample =
+        impact.sample_product_names.length > 0
+          ? `\nExemples: ${impact.sample_product_names.join(", ")}`
+          : "";
+
+      const message = [
+        `⚠️ Attention, vous allez supprimer le catalogue "${impact.catalog_name}".`,
+        "",
+        `• ${impact.items_in_catalog} items seront retirés de ce catalogue.`,
+        `• ${impact.products_only_in_this_catalog} produits seront supprimés définitivement (uniquement liés à ce catalogue).`,
+        `• ${impact.products_blocked_by_usage} produits ne seront PAS supprimés (déjà utilisés).`,
+        sample,
+        "",
+        "Confirmer la suppression ?",
+      ].join("\n");
+
+      if (!confirm(message)) return;
+
       await deleteDistributorCatalog(id);
       if (selectedCatalog?.id === id) setSelectedCatalog(null);
       loadCatalogs();
-    } catch {
-      /* silencieux */
+      loadProducts();
+    } catch (e) {
+      console.error("Erreur suppression catalogue:", e);
     }
   };
 

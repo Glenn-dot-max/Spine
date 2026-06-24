@@ -64,7 +64,7 @@ __all__ = [
     "CompanyUpdate",
 ]
 
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
 class ProductImportPreview(BaseModel):
@@ -95,6 +95,7 @@ class PDFToCatalogResult(BaseModel):
     products_created: int
     products_skipped: int
     pdf_attached: bool
+    generated_catalog_pitch: Optional[str] = None
     
 class ProductImportResult(BaseModel):
     """Result of import operation."""

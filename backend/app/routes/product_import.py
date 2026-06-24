@@ -13,7 +13,7 @@ from app.models.user import User
 from app.models.product import Product
 from app.schemas import ProductImportResult, ProductImportPreview, PDFImportPreview, PDFToCatalogResult, PDFCreditCheck
 from app.api.deps import get_current_user
-from app.services.pdf_ai_extractor import extract_products_with_ai
+from app.services.pdf_ai_extractor import extract_products_with_ai, generate_catalog_pitch_with_ai
 from app.models.distributor_catalog import DistributorCatalog, DistributorCatalogItem
 import os
 
@@ -567,6 +567,16 @@ async def import_pdf_to_catalog(
     except Exception as e:
         raise HTTPException(500, f"Extraction error: {str(e)}")
     
+    # Pitch catalogue auto-généré (non-bloquant)
+    generated_catalog_pitch = ""
+    try:
+        generated_catalog_pitch = generate_catalog_pitch_with_ai(
+            catalog_name=catalog_name.strip(),
+            products=extracted_products,
+        )
+    except Exception:
+        generated_catalog_pitch = ""
+
     # Étape 2 : créer ou récupérer le catalogue
     normalized_company_id = company_id if company_id and company_id > 0 else None
 
@@ -677,4 +687,5 @@ async def import_pdf_to_catalog(
         products_created=created,
         products_skipped=skipped,
         pdf_attached=pdf_atatched,
+        generated_catalog_pitch=generated_catalog_pitch or None,
     )

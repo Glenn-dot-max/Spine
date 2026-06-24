@@ -20,6 +20,9 @@ from app.core.deps import get_db, get_current_user
 from app.models.user import User
 from app.models.distributor_catalog import DistributorCatalog, DistributorCatalogItem
 from app.models.product import Product
+from app.models.campaign import Campaign, CampaignProduct
+from app.models.prospect import Prospect
+from app.models.prospect_product import ProspectProduct
 from app.schemas.distributor_catalog import (
     DistributorCatalogCreate,
     DistributorCatalogUpdate,
@@ -28,6 +31,7 @@ from app.schemas.distributor_catalog import (
     DistributorCatalogItemCreate,
     DistributorCatalogItemUpdate,
     DistributorCatalogItemOut,
+    DistributorCatalogDeleteImpact,
 )
 
 router = APIRouter(prefix="/api/distributor-catalogs", tags=["distributor-catalogs"])
@@ -47,6 +51,100 @@ def _serialize_item(item: DistributorCatalogItem) -> DistributorCatalogItemOut:
         product_brand=item.product.brand if item.product else None,
         product_category=item.product.category if item.product else None,
     )
+
+def _compute_delete_impact(
+        catalog: DistributorCatalog,
+        db: Session,
+        current_user: User,
+):
+    """
+    Retourne:
+    - ids produits du catalogue
+    - ids produits supprimables (uniquement dans ce catalogue, non utilisés)
+    - compteurs d'impact
+    """
+    # Produits rattachés au catalogue
+    rows = (
+        db.query(Product.id, Product.name)
+        .join(DistributorCatalogItem, DistributorCatalogItem.product_id == Product.id)
+        .filter(
+            DistributorCatalogItem.catalog_id == catalog.id,
+            Product.user_id == current_user.id,
+        )
+        .all()
+    )
+    product_ids = {pid for pid, _ in rows}
+    name_by_id = {pid: (name or f"Product #{pid}") for pid, name in rows}
+
+    if not product_ids:
+        return {
+            "product_ids_in_catalog": set(),
+            "deletable_product_ids": set(),
+            "items_in_catalog": 0,
+            "products_only_in_this_catalog": 0,
+            "products_blocked_by_usage": 0,
+            "sample_product_names": [],
+        }
+    
+    # Produits présents dans d'autres catalogues distributeurs de ce user
+    in_other_catalog_rows = (
+        db.query(DistributorCatalogItem.product_id)
+        .join(
+            DistributorCatalog,
+            DistributorCatalog.id == DistributorCatalogItem.catalog_id,
+        )
+        .filter(
+            DistributorCatalog.user_id == current_user.id,
+            DistributorCatalogItem.catalog_id != catalog.id,
+            DistributorCatalogItem.product_id.in_(product_ids),
+        )
+        .distinct()
+        .all()
+    )
+    in_other_catalog_ids = {pid for (pid,) in in_other_catalog_rows}
+
+    only_this_catalog_ids = product_ids - in_other_catalog_ids
+
+    # produits utilisés dans campagnes de ce user
+    in_campaign_rows = (
+        db.query(CampaignProduct.product_id)
+        .join(Campaign, Campaign.id == CampaignProduct.campaign_id)
+        .filter(
+            Campaign.user_id == current_user.id,
+            CampaignProduct.product_id.in_(only_this_catalog_ids),
+        )
+        .distinct()
+        .all()
+    )
+    in_campaign_ids = {pid for (pid,) in in_campaign_rows}
+
+    # Produits utilisés dans prospects de ce user
+    in_prospect_rows = (
+        db.query(ProspectProduct.product_id)
+        .join(Prospect, Prospect.id == ProspectProduct.prospect_id)
+        .filter(
+            Prospect.user_id == current_user.id,
+            ProspectProduct.product_id.in_(only_this_catalog_ids),
+        )
+        .distinct()
+        .all()
+    )
+    in_prospect_ids = {pid for (pid,) in in_prospect_rows}
+
+    blocked_ids = in_campaign_ids | in_prospect_ids
+    deletable_ids = only_this_catalog_ids - blocked_ids
+
+    sample_names = [name_by_id[pid] for pid in list(product_ids)[:5]]
+
+    return {
+        "product_ids_in_catalog": product_ids,
+        "deletable_product_ids": deletable_ids,
+        "items_in_catalog": len(product_ids),
+        "products_only_in_this_catalog": len(deletable_ids),
+        "products_blocked_by_usage": len(blocked_ids),
+        "sample_product_names": sample_names,
+    }
+
 
 
 # --- CRUD Catalogue ---
@@ -182,14 +280,13 @@ def update_catalog(
     db.refresh(catalog)
     return get_catalog(catalog_id, db, current_user)
 
-
-@router.delete("/{catalog_id}", status_code=204)
-def delete_catalog(
+@router.get("/{catalog_id}/delete-impact", response_model=DistributorCatalogDeleteImpact)
+def get_delete_impact(
     catalog_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Supprime un catalogue et tous ses items (cascade)."""
+    """Retourne l'impact de la suppression d'un catalogue."""
     catalog = db.query(DistributorCatalog).filter(
         DistributorCatalog.id == catalog_id,
         DistributorCatalog.user_id == current_user.id,
@@ -197,9 +294,53 @@ def delete_catalog(
     if not catalog:
         raise HTTPException(status_code=404, detail="Catalog not found")
 
-    db.delete(catalog)
-    db.commit()
+    impact = _compute_delete_impact(catalog, db, current_user)
+    
+    return DistributorCatalogDeleteImpact(
+        catalog_id=catalog.id,
+        catalog_name=catalog.name,
+        items_in_catalog=impact["items_in_catalog"],
+        products_only_in_this_catalog=impact["products_only_in_this_catalog"],
+        products_blocked_by_usage=impact["products_blocked_by_usage"],
+        sample_product_names=impact["sample_product_names"],
+    )
 
+
+@router.delete("/{catalog_id}", status_code=204)
+def delete_catalog(
+    catalog_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Supprime un catalogue + ses items.
+    Supprime aussi les produits qui:
+        - appartiennent à ce catalogue
+        - n'appartiennent à aucun autre catalogue distributeur du user
+        - ne sont pas utilisés dans des campagnes ou prospects du user
+    """
+    catalog = db.query(DistributorCatalog).filter(
+        DistributorCatalog.id == catalog_id,
+        DistributorCatalog.user_id == current_user.id,
+    ).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    impact = _compute_delete_impact(catalog, db, current_user)
+    deletable_ids = impact["deletable_product_ids"]
+
+    # 1. Supprimer le catalogue
+    db.delete(catalog)
+    db.flush()
+
+    # 2. Supprimer les produits devenus orphelins
+    if deletable_ids:
+        db.query(Product).filter(
+            Product.user_id == current_user.id, 
+            Product.id.in_(deletable_ids),
+        ).delete(synchronize_session=False)
+
+    db.commit()
 
 # --- Gestion des produits dans un catalogue ---
 

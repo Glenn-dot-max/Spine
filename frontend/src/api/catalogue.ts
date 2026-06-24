@@ -232,6 +232,7 @@ export type PDFToCatalogResult = {
   products_created: number;
   products_skipped: number;
   pdf_attached: boolean;
+  generated_catalog_pitch?: string | null;
 };
 
 export const importPDFToCatalog = async (
@@ -276,3 +277,19 @@ export const getProductCatalogMemberships =
     const res = await api.get("/api/products/catalog-memberships");
     return res.data;
   };
+
+export type DistributorCatalogDeleteImpact = {
+  catalog_id: number;
+  catalog_name: string;
+  items_in_catalog: number;
+  products_only_in_this_catalog: number;
+  products_blocked_by_usage: number;
+  sample_product_names: string[];
+};
+
+export const getDistributorCatalogDeleteImpact = async (
+  id: number,
+): Promise<DistributorCatalogDeleteImpact> => {
+  const res = await api.get(`/api/distributor-catalogs/${id}/delete-impact`);
+  return res.data;
+};

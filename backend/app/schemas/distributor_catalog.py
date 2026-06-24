@@ -72,3 +72,15 @@ class DistributorCatalogSummary(DistributorCatalogBase):
     has_pdf: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class DistributorCatalogDeleteImpact(BaseModel):
+    """Impact estimé d'une suppression de catalogue."""
+    catalog_id: int
+    catalog_name: str
+    items_in_catalog: int
+    products_only_in_this_catalog: int
+    products_blocked_by_usage: int
+    sample_product_names: List[str] = []
+
+    model_config = {"from_attributes": True}
